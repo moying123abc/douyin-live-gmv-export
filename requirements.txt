@@ -1,0 +1,6 @@
+# douyin-live-gmv-export runtime dependencies (Python 3.9+)
+# Install: pip install -r requirements.txt
+# Browser kernel (separate from pip package): python -m playwright install chromium
+playwright>=1.40
+pandas>=2.0
+openpyxl>=3.1

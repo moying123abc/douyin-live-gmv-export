@@ -1,0 +1,61 @@
+# douyin-live-gmv-export 配置样例
+#
+# 用法:
+#   1) 复制本文件为 config.yaml(不提交进仓库,已在 .gitignore 中忽略);
+#   2) 按需修改;命令行参数优先级高于本文件;
+#   3) 未提供 config.yaml 时,程序使用内置默认值(与本文件内容一致)。
+#
+# 安全约束:
+#   - 不要把浏览器 profile / 任何登录凭据写进本文件或任何输出物;
+#   - 只操作你账号已有权限的数据;不做登录绕过、不做 a_bogus 等签名逆向;
+#   - 不收集商品-营销-违规事件时间轴。
+
+browser:
+  headful: true                          # 首次人工扫码登录必须为 true(有头可见窗口);登录后仍建议保持 true
+  profile_dir: data/browser_profile      # 持久化 Chromium profile(相对本项目根;自动创建;勿提交)
+  login_url: https://eos.douyin.com/
+  login_ok_url_prefix: https://eos.douyin.com   # 会话校验用的期望域名前缀
+  wait_login_seconds: 1800               # 等待人工扫码/登录的最长秒数
+
+probe:
+  base_url: https://eos.douyin.com/dp/liveScreen
+  output_dir: data/probe                 # 证据文件输出目录(相对本项目根)
+  load_wait_seconds: 35                  # 打开回放页后等待图表渲染的秒数(分钟指标响应加载较晚)
+  scroll_wait_seconds: 3                 # 页面首次滚动触发懒加载的等待秒数
+  max_row_sample: 5                      # 证据文件 row_sample 最多保留的完整行数
+  network_url_hints:
+    - trend
+    - stats
+    - live
+    - room
+    - board
+    - gmv
+  try_l3: false                          # L0/L1 未命中时是否尝试 L3 逐点悬停兜底脚手架(默认关闭)
+
+export:
+  out_dir: data/outputs                  # M2 导出输出目录(相对本项目根;不入库)
+  # T12:回放页「自定义指标」保留集合(趋势图同屏 ≤6;成交金额=gmv 分子必留;可改)
+  watch_capture_keep_metrics:
+    - 成交金额
+    - 成交订单数
+    - 在线人数
+    - 进入人数
+    - 直播间观看量
+    - 千次观看成交金额
+  # T13(可选):「确定」后若文本定位不到 直播间观看量 图例芯片时的坐标标定锚点
+  # (单次点按并记录;仅在你手工量过一次芯片坐标后填入;一般无需配置,文本定位优先)
+  # watch_capture_chip_anchor: {x: 763, y: 342}
+
+validation:
+  sum_abs_tolerance: 1.0                 # M2 求和校验绝对容差(元)
+  sum_rel_tolerance: 0.001               # M2 求和校验相对容差(相对页面累计 0.1%)
+  row_tolerance_minutes: 0               # M2 行数校验容差(行);默认严格相等
+
+# M3 扩展指标(订单数/支付订单数/在线人数/观看人数等,分钟粒度并入同表)。
+# 默认关闭:在取得“真机可得的分钟级序列”在线证据前,禁止启用并表,避免伪造粒度;
+# 探测过程与不可得结论见 docs/指标可得性结论.md。真机验证可得后:
+#   enabled: true
+#   column_ids: [order_min, online_uv_min]   # 从 registry 挑选已确认可得的指标
+extra_metrics:
+  enabled: false
+  column_ids: []

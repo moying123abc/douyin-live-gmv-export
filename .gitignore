@@ -1,0 +1,23 @@
+# ===== douyin-live-gmv-export =====
+# 浏览器持久化 profile:包含登录凭据 / 会话 Cookie,严禁提交
+data/browser_profile/
+
+# 用户本地配置(可含个人覆盖);模板见 config.example.yaml
+config.yaml
+
+# 探测证据与输出产物(可能含账号权限范围内的聚合数据)
+data/probe/*.json
+data/output*/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
