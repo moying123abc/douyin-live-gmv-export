@@ -238,3 +238,8 @@ key_index.ServerWatchCntTd=501(diff=-7,≈98.6%;对照稳定值 500 则 diff=-6)
 - [x] **M1**:脚手架 + 登录态管理 + `probe.py` 分层探测 + 证据文件格式
 - [x] **M2**:整场分钟成交金额序列导出(CSV/Excel)+ 内置校验(求和≈累计、行数≈分钟数、时间轴递增);夹具驱动离线回归通过,在线命中层语义列入待在线复核清单
 - [x] **M3**:订单数/在线人数等扩展指标——机制层同表对齐并入就绪(夹具演示,缺失留空注明、错位拒绝);交付环境无在线证据 → 输出 docs/指标可得性结论.md + `extra_metrics` 默认关闭开关,不伪造粒度
+
+## 许可证 / License
+
+本项目基于 [MIT License](LICENSE) 开源,可自由使用、修改与分发(需保留版权声明)。
+This project is licensed under the [MIT License](LICENSE).
