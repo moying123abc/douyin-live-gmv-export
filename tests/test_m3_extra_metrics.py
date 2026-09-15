@@ -27,7 +27,10 @@ from extractor import extra_metrics, trend, validation  # noqa: E402
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 FIXTURE_A = ROOT / "data" / "samples" / "sample_ended_session_60min.json"
 SCRATCH = ROOT / "data" / "outputs" / "_m3_selftest"
-M2_REFERENCE = ROOT / "data" / "outputs" / "final.csv"  # M2 阶段同夹具 off 导出参考
+# M2 阶段同夹具 off 导出参考(golden,随仓库入库)。
+# 说明:该基准原先放在 data/outputs/(已被 .gitignore 排除),导致全新克隆后本用例
+# 必然报"缺少 M2 参考 CSV"失败;现改为入库夹具 tests/fixtures/m2_reference_final.csv。
+M2_REFERENCE = ROOT / "tests" / "fixtures" / "m2_reference_final.csv"
 
 
 def _reset_scratch():
@@ -122,8 +125,13 @@ def test_unknown_column_id_rejected():
 
 
 def test_disabled_export_identical_to_m2_diff():
-    """开关关闭时导出与 M2 完全一致:与 M2 阶段产物 final.csv 逐字节一致。"""
-    assert M2_REFERENCE.is_file(), f"缺少 M2 参考 CSV: {M2_REFERENCE}"
+    """开关关闭时导出与 M2 完全一致:与入库 golden(m2_reference_final.csv)逐字节一致。"""
+    assert M2_REFERENCE.is_file(), (
+        f"缺少 M2 参考 CSV: {M2_REFERENCE}\n"
+        "  这是随仓库入库的 golden 夹具,若被误删可重建:\n"
+        "    python main.py export --fixture data/samples/sample_ended_session_60min.json "
+        "--out tests/fixtures/m2_reference_final"
+    )
     _reset_scratch()
     out = SCRATCH / "off"
     run = subprocess.run(

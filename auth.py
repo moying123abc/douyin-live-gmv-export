@@ -20,14 +20,20 @@ import time
 
 import config as cfgmod
 
-# 抖音体系登录成功后会种下的关键 Cookie 名称(仅用于存在性判断,绝不打印值)
+# 抖音体系**登录成功后**才会种下的鉴权 Cookie 名称(仅用于存在性判断,绝不打印值)。
+#
+# 注意:不要把"仅打开页面(未登录)就会种下"的匿名 Cookie 放进来,否则会把
+# "还没登录"误判成"已登录"。实测反例(打开登录页即出现、与是否登录无关):
+#   passport_csrf_token / passport_csrf_token_default / ttwid / s_v_web_id /
+#   csrf_session_id / biz_trace_id / be-token / gfkadpd 等。
+# 历史上 passport_csrf_token 曾被列入本集合,导致 python main.py login 在
+# 未扫码的情况下数秒内误报"登录成功"(随后各命令失败: status_code=8 用户未登录)。
 _LOGIN_COOKIE_HINTS = {
     "sessionid",
     "sessionid_ss",
     "sid_tt",
     "uid_tt",
     "sid_guard",
-    "passport_csrf_token",
 }
 
 
@@ -100,14 +106,27 @@ def _cookie_is_douyin(cookie: dict) -> bool:
     return domain == "douyin.com" or domain.endswith(".douyin.com")
 
 
-def session_available(cfg: dict, context) -> bool:
-    """通过 Cookie 存在性判断是否已有登录会话(不读取、不打印 Cookie 值)。"""
+def _douyin_cookie_names(context) -> set:
+    """当前 context 下 douyin 域 Cookie 的**名称**集合(永不读取/打印 Cookie 值)。"""
     try:
         cookies = context.cookies()
     except Exception:
-        return False
-    names = {c.get("name", "") for c in cookies if _cookie_is_douyin(c)}
-    return bool(names & _LOGIN_COOKIE_HINTS)
+        return set()
+    return {c.get("name", "") for c in cookies if _cookie_is_douyin(c)}
+
+
+def matched_login_cookies(context) -> list:
+    """命中"已登录"判定的 Cookie 名(供日志说明用;不含任何 Cookie 值)。"""
+    return sorted(_douyin_cookie_names(context) & _LOGIN_COOKIE_HINTS)
+
+
+def session_available(cfg: dict, context) -> bool:
+    """通过 Cookie 存在性判断是否已有登录会话(不读取、不打印 Cookie 值)。
+
+    仅当出现**登录后才会种下**的鉴权 Cookie 才判定为已登录;打开登录页即出现的
+    匿名 Cookie(如 passport_csrf_token)一律不算,避免"未登录却报登录成功"。
+    """
+    return bool(matched_login_cookies(context))
 
 
 def ensure_logged_in(cfg: dict, context, page, *, wait_seconds: int | None = None) -> bool:
@@ -119,7 +138,8 @@ def ensure_logged_in(cfg: dict, context, page, *, wait_seconds: int | None = Non
     - 返回是否登录成功;失败时不做任何注入/绕过,由调用方给出人工引导。
     """
     if session_available(cfg, context):
-        print("[auth] 检测到已有登录会话(profile 自动复用),无需重新扫码。")
+        print("[auth] 检测到已有登录会话(profile 自动复用,鉴权 Cookie: "
+              + ", ".join(matched_login_cookies(context)) + "),无需重新扫码。")
         return True
 
     login_url = cfg.get("browser", {}).get("login_url", "https://eos.douyin.com/")
@@ -141,7 +161,8 @@ def ensure_logged_in(cfg: dict, context, page, *, wait_seconds: int | None = Non
     last_report = 0.0
     while time.time() < deadline:
         if session_available(cfg, context):
-            print("[auth] 登录成功(检测到会话 Cookie)。")
+            print("[auth] 登录成功(检测到鉴权 Cookie: "
+                  + ", ".join(matched_login_cookies(context)) + ")。")
             return True
         now = time.time()
         if now - last_report >= 15:

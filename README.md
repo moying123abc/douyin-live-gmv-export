@@ -65,6 +65,30 @@ python -m playwright install chromium
 
 > 说明:`main.py --help`、`probe.py --dry-run` 等命令在未安装 playwright 的环境也能运行(依赖为调用时导入);真正打开页面前才需要浏览器内核。
 
+## 快速验证(不需要登录、不需要账号)
+
+装完依赖后**先跑这三条**(全部离线:不联网、不打开浏览器、不用登录),用来确认工具本身可用:
+
+```powershell
+# 1) 整场分钟成交金额 → CSV(应看到"校验通过 ✓")
+python main.py export --fixture data\samples\sample_ended_session_60min.json
+
+# 2) 带观看序列的夹具 → 额外产出小时 GPM 表(_hourly.csv)
+python main.py export --fixture data\samples\sample_ended_session_gpm.json
+
+# 3) 成交点精简表(time 只留 HH:MM,只保留 gmv>0 的行)
+python main.py trim --in data\outputs\sample_ended_session_60min.csv
+```
+
+- 产物统一写到 `data\outputs\`(已在 `.gitignore` 中排除,**不会**被提交)。
+- 一次性跑全部离线自检(不需要登录):
+
+```powershell
+Get-ChildItem tests\*.py | ForEach-Object { python $_ }
+```
+
+> 若这三条都正常,说明代码与环境没问题;接下来只剩"登录"这一步需要你的账号。
+
 ## 登录(首次,一次即可)
 
 ```powershell
@@ -72,7 +96,16 @@ python main.py login
 ```
 
 - 会以**有头窗口**打开 `https://eos.douyin.com/`,请在弹出的浏览器里**扫码 / 登录你的抖音账号**(该账号须对目标直播间有查看权限)。
-- 登录成功(检测到会话 Cookie)后程序自动继续,凭据仅保存在本地持久化 profile `data/browser_profile/`;后续 `probe` / `export` 自动复用,无需重复登录。
+- **登录成功的判定标准**:只有当浏览器里出现 `sessionid` / `sessionid_ss` / `sid_tt` /
+  `uid_tt` / `sid_guard` 这类**登录后才会种下**的鉴权 Cookie 时,程序才判定成功并自动继续
+  (成功时会把命中的 Cookie 名打印出来供你核对)。仅打开登录页就会产生的匿名 Cookie
+  (如 `passport_csrf_token`)**不算登录成功**,以免出现"提示成功、实际未登录"的误导。
+- 凭据仅保存在本地持久化 profile `data/browser_profile/`;后续 `probe` / `export` 自动复用,无需重复登录。
+- **常见问题**:
+  - 一直停在"仍在等待人工登录…"→ 确认那个**有头浏览器窗口**已经弹出且没有被其他窗口遮挡,在窗口内完成扫码;窗口若被关掉请重跑命令。
+  - 提示登录成功、但之后命令报 `status_code=8 用户未登录`→ 会话已失效(或该账号无此数据权限):
+    删除 `data\browser_profile\` 后重跑 `python main.py login` 重新扫码。
+  - 换账号 / 换直播间权限:同样先删除 `data\browser_profile\` 再重新登录。
 - 会话过期时重跑 `login` 即可;若需强制重新登录,删除 `data/browser_profile/` 后重跑。
 
 ## 探测(只读,定位数据来源)

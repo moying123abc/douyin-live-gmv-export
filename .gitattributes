@@ -1,0 +1,6 @@
+# 逐字节比对用的 golden 夹具按"非文本"处理,禁止 Git 做换行符转换,
+# 否则在不同 core.autocrlf 设置或跨平台克隆时字节比对会失效。
+tests/fixtures/*.csv -text
+
+# CSV 输出产物保留生成时的换行符(不参与归一化)
+*.csv -text
