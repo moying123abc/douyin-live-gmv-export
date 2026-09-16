@@ -4,3 +4,6 @@ tests/fixtures/*.csv -text
 
 # CSV 输出产物保留生成时的换行符(不参与归一化)
 *.csv -text
+
+# Windows 批处理必须 CRLF:用 LF 会让 cmd.exe 错行解析(实测会静默不执行命令)
+*.bat text eol=crlf

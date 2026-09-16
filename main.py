@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import pathlib
+import re
 import sys
 
 
@@ -92,9 +93,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_stats.add_argument("--config", default=None, help="配置文件路径")
     p_stats.set_defaults(func=cmd_stats)
 
-    p_daily = sub.add_parser("daily", help="一键日报:导出某天全部已结束场次并生成\"两列表日报文件夹\"(成交点 HH:MM+gmv + 日报汇总)")
-    p_daily.add_argument("--date", default=None,
-                         help="日期 YYYY-MM-DD(默认今天,东八区)")
+    p_daily = sub.add_parser("daily", help="一键日报:导出某天(可多天)全部已结束场次并生成\"两列表日报文件夹\"(成交点 HH:MM+gmv + 日报汇总)")
+    p_daily.add_argument("--date", default=None, action="append", nargs="+", metavar="YYYY-MM-DD",
+                         help="日期 YYYY-MM-DD(默认今天,东八区);支持一次传多个日期:"
+                              "空格分隔(--date 2026-09-01 2026-09-02)、逗号分隔"
+                              "(--date 2026-09-01,2026-09-02)或重复传入(--date 2026-09-01 --date 2026-09-02);"
+                              "每个日期各生成一个 日报_<YYYYMMDD> 文件夹,单日失败不影响其他日")
     p_daily.add_argument("--no-open", action="store_true",
                          help="生成后不自动打开结果文件夹(默认在 Windows 下自动打开)")
     p_daily.add_argument("--config", default=None, help="配置文件路径")
@@ -198,30 +202,28 @@ def cmd_trim(args) -> int:
     return 0
 
 
-def cmd_daily(args) -> int:
-    """一键日报:确保某天已导出(可自动在线导出)并产出两列日报文件夹。"""
+def _daily_one_date(cfg: dict, date_str: str, out_dir: pathlib.Path, *,
+                    want_capture: bool) -> tuple:
+    """生成**某一天**的日报(单日主体,原 cmd_daily 的行为保持不变)。
+
+    - want_capture: 缺观看档时是否自动补捕获(会短暂打开浏览器);
+    - 返回 (退出码, 日报目录 Path 或 None);单日失败只影响该日,由调用方决定后续。
+    """
     import csv as _csv
-    import os
 
     import config as cfgmod
     from extractor import daily_stats
     from exporter import to_csv_excel
 
-    cfg = cfgmod.load_config(args.config)
-    date_str = (args.date or _dt.date.today().isoformat()).strip()
     try:
         day = _dt.date.fromisoformat(date_str)
-    except ValueError as exc:
+    except ValueError:
         print(f"[daily] 日期格式应为 YYYY-MM-DD: {date_str!r}", file=sys.stderr)
-        return 2
-    out_rel = cfg.get("export", {}).get("out_dir", "data/outputs")
-    out_dir = pathlib.Path(out_rel)
+        return 2, None
     if not out_dir.is_absolute():
         out_dir = cfgmod.PROJECT_ROOT / out_dir
 
     skipped_info: list = []
-    # 默认自动补捕获观看档(缺观看档才开一次浏览器窗口;可用 --no-capture-watch 关闭)
-    want_capture = not bool(getattr(args, "no_capture_watch", False))
     files = daily_stats.day_files(out_dir, date_str)
     if not files:
         print(f"[daily] {date_str} 尚无已导出的分钟量表,自动在线导出(--compact)…")
@@ -229,14 +231,15 @@ def cmd_daily(args) -> int:
                                  capture_watch=want_capture)
         skipped_info = info.get("skipped", [])
         if code != 0:
-            print(f"[daily] 当天没有成功导出的场次(退出码 {code}),无法生成日报。", file=sys.stderr)
-            return code
+            print(f"[daily] {date_str} 当天没有成功导出的场次(退出码 {code}),无法生成日报。",
+                  file=sys.stderr)
+            return code, None
         files = daily_stats.day_files(out_dir, date_str)
     if not files:
         print(f"[daily] {date_str} 没有可用的分钟量表文件({out_dir}).", file=sys.stderr)
         print("[daily] 人工引导: 先 python main.py login,再 python main.py daily "
               f"--date {date_str}。", file=sys.stderr)
-        return 2
+        return 2, None
 
     # 确保每场都有两列精简表(缺失时由本地分钟量表离线推导,不重复联网)
     for cf in files:
@@ -249,7 +252,7 @@ def cmd_daily(args) -> int:
             comp_rows = to_csv_excel.compact_rows(rows)
         except ValueError as exc:
             print(f"[daily] {cf.name} 无法生成精简表(结构拒绝): {exc}", file=sys.stderr)
-            return 3
+            return 3, None
         to_csv_excel.write_compact_csv(comp, comp_rows)
         print(f"[daily] 补生成精简表: {comp}")
 
@@ -302,13 +305,104 @@ def cmd_daily(args) -> int:
         print(f"[daily] 小时 GPM 表(跨场按小时叠加): {hres['csv']}")
     else:
         print(f"[daily] 小时 GPM 降级说明(观看序列不可得/口径待对拍;不影响日报): {hres.get('note')}")
-    if not getattr(args, "no_open", False) and sys.platform.startswith("win"):
+    return 0, folder
+
+
+def _parse_daily_dates(raw, *, today: str | None = None) -> list:
+    """把 daily --date 的多种写法归一为"有序去重"的 YYYY-MM-DD 列表。
+
+    支持(各写法可混用):
+      --date 2026-09-01                     单日(与旧行为一致)
+      --date 2026-09-01 2026-09-02          空格分隔多日
+      --date 2026-09-01,2026-09-02          逗号分隔(兼容中文逗号/分号)
+      --date 2026-09-01 --date 2026-09-02   重复传参
+
+    未提供 --date 时返回 [今天(本地日期)]。
+    任一日期非法 → ValueError:整批拒绝并给出用法提示,不做"半截工作"。
+    """
+    if not raw:
+        return [today or _dt.date.today().isoformat()]
+    items = raw if isinstance(raw, (list, tuple)) else [raw]
+    tokens: list = []
+    for item in items:
+        for value in (item if isinstance(item, (list, tuple)) else [item]):
+            tokens.extend(p for p in re.split(r"[,，;；\s]+", str(value or "")) if p)
+    if not tokens:
+        raise ValueError("未解析到任何日期。用法: --date 2026-09-01 [2026-09-02 ...]")
+    ordered: list = []
+    for token in tokens:
         try:
-            os.startfile(str(folder))  # type: ignore[attr-defined]
-            print("[daily] 已在资源管理器中打开结果文件夹。")
-        except OSError:
-            pass
-    return 0
+            day = _dt.date.fromisoformat(token).isoformat()
+        except ValueError:
+            raise ValueError(
+                f"日期格式应为 YYYY-MM-DD: {token!r}"
+                "(多个日期可用空格或逗号分隔,例如 --date 2026-09-01 2026-09-02)"
+            ) from None
+        if day not in ordered:
+            ordered.append(day)
+    return ordered
+
+
+def cmd_daily(args) -> int:
+    """一键日报:支持一次传入多个日期,逐日各生成一个 日报_<YYYYMMDD> 文件夹。
+
+    - 每个日期独立处理:某天失败(无数据/无权限/校验拒绝)不会中断其他天;
+    - 退出码:全部成功 = 0;存在失败 = 第一个失败日的退出码;
+    - 自动打开目录(Windows):单日 → 打开该日报目录(与旧行为一致);
+      多日 → 只打开输出根目录一次,避免弹出多个资源管理器窗口;--no-open 一律不打开。
+    """
+    import os
+
+    import config as cfgmod
+
+    cfg = cfgmod.load_config(args.config)
+    try:
+        dates = _parse_daily_dates(getattr(args, "date", None))
+    except ValueError as exc:
+        print(f"[daily] {exc}", file=sys.stderr)
+        return 2
+
+    out_rel = cfg.get("export", {}).get("out_dir", "data/outputs")
+    out_dir = pathlib.Path(out_rel)
+    if not out_dir.is_absolute():
+        out_dir = cfgmod.PROJECT_ROOT / out_dir
+    want_capture = not bool(getattr(args, "no_capture_watch", False))
+    multi = len(dates) > 1
+    if multi:
+        joined = ", ".join(dates)
+        print(f"[daily] 共 {len(dates)} 个日期: {joined}(逐日独立生成,单日失败不影响其他日)")
+
+    results: list = []
+    for idx, date_str in enumerate(dates, 1):
+        if multi:
+            print(f"[daily] ===== [{idx}/{len(dates)}] {date_str} =====")
+        code, folder = _daily_one_date(cfg, date_str, out_dir, want_capture=want_capture)
+        results.append((date_str, code, folder))
+
+    failed = [(d, c) for d, c, _f in results if c != 0]
+    if multi:
+        print("[daily] ---- 汇总 ----")
+        for date_str, code, folder in results:
+            state = "成功" if code == 0 else f"失败(退出码 {code})"
+            print(f"[daily]   {date_str}  {state}" + (f"  -> {folder}" if folder else ""))
+        print(f"[daily] 共 {len(dates)} 日:成功 {len(dates) - len(failed)} 日,"
+              f"失败 {len(failed)} 日")
+
+    # 自动打开目录(仅 Windows):单日开日报目录;多日只开输出根目录一次
+    if not getattr(args, "no_open", False) and sys.platform.startswith("win"):
+        target = None
+        if len(results) == 1 and results[0][2] is not None:
+            target = results[0][2]
+        elif multi:
+            target = out_dir
+        if target is not None and pathlib.Path(target).exists():
+            try:
+                os.startfile(str(target))  # type: ignore[attr-defined]
+                print(f"[daily] 已在资源管理器中打开: {target}")
+            except OSError as exc:  # 打不开不影响日报生成
+                print(f"[daily] 提示: 自动打开目录失败({exc}),产物已正常生成。")
+
+    return failed[0][1] if failed else 0
 
 
 def cmd_stats(args) -> int:

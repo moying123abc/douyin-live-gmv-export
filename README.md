@@ -21,7 +21,7 @@
 
 ```
 douyin-live-gmv-export/
-├── main.py                # CLI 入口:login / probe / export(M2 已实现)
+├── main.py                # CLI 入口:login / probe / export / trim / sessions / stats / daily
 ├── auth.py                # 登录态管理:持久化 profile + 人工扫码登录
 ├── probe.py               # 分层只读探测(L0/L1/L3),输出 data/probe/*.json 证据
 ├── config.py              # 轻量配置加载(标准库;PyYAML 可选)
@@ -167,6 +167,42 @@ python main.py export --date 2026-09-04 --excel  # 当天每场各导出 CSV/Exc
 记为 SKIP 并在控制台提示“待在线复核”。详见
 [docs/export-schema-and-validation.md](docs/export-schema-and-validation.md);
 按天导入的日期口径见 [docs/按天导出-日期口径.md](docs/按天导出-日期口径.md)。
+
+## 一键日报(daily:支持一次导出多天)
+
+`daily` 把某天(或**多天**)的已结束场次整理成 `日报_<YYYYMMDD>` 文件夹
+(每场成交点表 + 日报汇总,有观看档时另含小时 GPM 表)。
+
+```powershell
+# 单日(不传就是今天;与旧版行为完全一致)
+python main.py daily
+python main.py daily --date 2026-09-04
+
+# 多日:下面三种写法完全等价,每个日期各生成一个 日报_<YYYYMMDD> 文件夹
+python main.py daily --date 2026-09-01 2026-09-02 2026-09-03      # 空格分隔
+python main.py daily --date 2026-09-01,2026-09-02,2026-09-03      # 逗号分隔(中文逗号/分号也行)
+python main.py daily --date 2026-09-01 --date 2026-09-02          # 重复传参
+```
+
+- **逐日独立**:某天失败(当天无数据 / 无权限 / 校验拒绝)只跳过该天,不影响其他天;
+- **退出码**:全部成功 = `0`;存在失败时返回**第一个失败日**的退出码,便于脚本判断;
+- **重复日期自动去重**(保留传入顺序);**含非法日期时整批拒绝**(退出码 2),不会只做一半;
+- **自动打开目录**(Windows):单日打开该日报目录;多日只打开输出根目录一次,避免弹出一堆窗口;
+  加 `--no-open` 关闭该行为;
+- 多日运行时逐日打印 `===== [i/N] YYYY-MM-DD =====`,末尾给成功/失败汇总,例如:
+
+```
+[daily] 共 3 个日期: 2026-09-01, 2026-09-02, 2026-09-03(逐日独立生成,单日失败不影响其他日)
+[daily] ===== [1/3] 2026-09-01 =====
+...
+[daily] ---- 汇总 ----
+[daily]   2026-09-01  成功  -> ...\日报_20260901
+[daily]   2026-09-02  失败(退出码 2)
+[daily] 共 3 日:成功 2 日,失败 1 日
+```
+
+> 说明:`sessions` / `stats` / `export --date` 仍是**单日期**参数;需要多天时用 `daily` 一次传入多个日期。
+> 一键脚本 `统计当天.bat` 同样支持多天:`统计当天.bat 2026-09-01 2026-09-02`
 
 ## 配置
 
