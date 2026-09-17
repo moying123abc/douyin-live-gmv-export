@@ -1,6 +1,6 @@
-# 抖音巨量百应直播大屏数据导出工具
+# 抖音直播中控、运营做表用数据导出工具:导出巨量百应直播大屏分钟级成交金额(GMV)与小时 GPM,一键生成多日日报
 
-**douyin-live-gmv-export** · 面向抖音直播运营、中控,导出抖音巨量百应**直播数据大屏**(`eos.douyin.com/dp/liveScreen?room_id=<id>&tab=trend`,已结束场次可回放)整场**每分钟新增成交金额**时间序列的本地 Python + Playwright 工具,最终输出 CSV(可另存 Excel)。
+**douyin-live-gmv-export** · 导出抖音巨量百应**直播数据大屏**(`eos.douyin.com/dp/liveScreen?room_id=<id>&tab=trend`,已结束场次可回放)整场**每分钟新增成交金额**时间序列的本地 Python + Playwright 工具,最终输出 CSV(可另存 Excel)。
 
 > 当前进度:**M1(骨架/登录/探测)+ M2(整场分钟成交金额导出 + 内置校验)+
 > M3(订单数/在线人数等扩展指标:机制就绪 + 不可得结论 + 默认关闭开关)已交付**。
