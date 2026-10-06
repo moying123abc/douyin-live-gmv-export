@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import pathlib
+import re
 from typing import Any, Dict, List, Optional
 
 _CST = _dt.timezone(_dt.timedelta(hours=8))
@@ -35,13 +36,31 @@ class DaySessionsUnavailable(RuntimeError):
 # ---------------------------------------------------------------------------
 # 时间窗口与解析(纯函数)
 # ---------------------------------------------------------------------------
+# 允许 - 或 . 分割年月日(如 2026-09-04 / 2026.09.04);月、日允许 1~2 位。
+# 注意:刻意不纳入 / 分割(维持既有按天窗口对非法写法抛错的约定)。
+_DATE_SPLIT_RE = re.compile(r"^(\d{4})[-.](\d{1,2})[-.](\d{1,2})$")
+_DATE_FORMAT_HINT = "日期格式应为 YYYY-MM-DD(也支持用 . 分割,如 2026.09.04)"
+
+
+def normalize_date_str(date_str: str) -> str:
+    """把用户输入的日期串归一为 YYYY-MM-DD。
+
+    支持 - 或 . 分割年月日(如 2026-09-04 与 2026.09.04),月/日允许 1~2 位
+    (自动补零);其余写法(如用 / 分割)视为非法 → ValueError。
+    """
+    token = str(date_str).strip()
+    m = _DATE_SPLIT_RE.match(token)
+    if not m:
+        raise ValueError(f"{_DATE_FORMAT_HINT},得到 {date_str!r}")
+    year, month, day = m.group(1), int(m.group(2)), int(m.group(3))
+    return f"{year}-{month:02d}-{day:02d}"
+
+
 def parse_date(date_str: str) -> _dt.date:
     try:
-        return _dt.date.fromisoformat(str(date_str).strip())
+        return _dt.date.fromisoformat(normalize_date_str(date_str))
     except ValueError as exc:
-        raise ValueError(
-            f"日期格式应为 YYYY-MM-DD,得到 {date_str!r}"
-        ) from exc
+        raise ValueError(f"{_DATE_FORMAT_HINT},得到 {date_str!r}") from exc
 
 
 def day_range_epochs(date_str: str) -> tuple:

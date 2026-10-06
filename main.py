@@ -62,7 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_export = sub.add_parser("export", help="导出整场分钟成交金额序列为 CSV/Excel,含内置校验")
     p_export.add_argument("--room-id", default=None, help="直播间 room_id(已结束场次;在线导出用)")
     p_export.add_argument("--date", default=None,
-                          help="按天导出 YYYY-MM-DD:自动解析当天每场 room_id 并各导出一个文件(默认今天,东八区)")
+                          help="按天导出 YYYY-MM-DD(也支持用 . 分割,如 2026.09.04):自动解析当天每场 room_id 并各导出一个文件(默认今天,东八区)")
     p_export.add_argument("--config", default=None, help="配置文件路径")
     p_export.add_argument("--fixture", default=None,
                           help="离线夹具 JSON 路径(recorded sample;无登录/离线自测用)")
@@ -86,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_stats = sub.add_parser("stats", help="某天场次级汇总统计(读 data/outputs 已导出的分钟量表;--auto 缺失时自动在线补导出)")
     p_stats.add_argument("--date", default=None,
-                         help="日期 YYYY-MM-DD(默认今天,东八区)")
+                         help="日期 YYYY-MM-DD(也支持用 . 分割,如 2026.09.04;默认今天,东八区)")
     p_stats.add_argument("--auto", action="store_true",
                          help="当天分钟量表缺失时自动执行 export --date 在线补导出后再统计")
     p_stats.add_argument("--out", default=None, help="汇总 CSV 输出路径(默认 data/outputs/stats_<日期>.csv)")
@@ -95,7 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_daily = sub.add_parser("daily", help="一键日报:导出某天(可多天)全部已结束场次并生成\"两列表日报文件夹\"(成交点 HH:MM+gmv + 日报汇总)")
     p_daily.add_argument("--date", default=None, action="append", nargs="+", metavar="YYYY-MM-DD",
-                         help="日期 YYYY-MM-DD(默认今天,东八区);支持一次传多个日期:"
+                         help="日期 YYYY-MM-DD(也支持用 . 分割,如 2026.09.01;默认今天,东八区);支持一次传多个日期:"
                               "空格分隔(--date 2026-09-01 2026-09-02)、逗号分隔"
                               "(--date 2026-09-01,2026-09-02)或重复传入(--date 2026-09-01 --date 2026-09-02);"
                               "每个日期各生成一个 日报_<YYYYMMDD> 文件夹,单日失败不影响其他日")
@@ -111,7 +111,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_sessions = sub.add_parser("sessions", help="列出指定日期(东八区)该账号已结束场次(只读)")
     p_sessions.add_argument("--date", default=None,
-                            help="日期 YYYY-MM-DD(默认今天,东八区)")
+                            help="日期 YYYY-MM-DD(也支持用 . 分割,如 2026.09.04;默认今天,东八区)")
     p_sessions.add_argument("--config", default=None, help="配置文件路径")
     p_sessions.set_defaults(func=cmd_sessions)
 
@@ -308,6 +308,15 @@ def _daily_one_date(cfg: dict, date_str: str, out_dir: pathlib.Path, *,
     return 0, folder
 
 
+def _normalize_date_token(token: str) -> str:
+    """把用户输入的单个日期串归一为 YYYY-MM-DD(支持用 . 分割,如 2026.09.04)。
+
+    复用 extractor.sessions.normalize_date_str 作为唯一天花板;非法写法抛 ValueError。
+    """
+    from extractor.sessions import normalize_date_str
+    return normalize_date_str(token)
+
+
 def _parse_daily_dates(raw, *, today: str | None = None) -> list:
     """把 daily --date 的多种写法归一为"有序去重"的 YYYY-MM-DD 列表。
 
@@ -332,10 +341,11 @@ def _parse_daily_dates(raw, *, today: str | None = None) -> list:
     ordered: list = []
     for token in tokens:
         try:
-            day = _dt.date.fromisoformat(token).isoformat()
+            day = _dt.date.fromisoformat(_normalize_date_token(token)).isoformat()
         except ValueError:
             raise ValueError(
-                f"日期格式应为 YYYY-MM-DD: {token!r}"
+                "日期格式应为 YYYY-MM-DD(也支持用 . 分割,如 2026.09.01): "
+                f"{token!r}"
                 "(多个日期可用空格或逗号分隔,例如 --date 2026-09-01 2026-09-02)"
             ) from None
         if day not in ordered:
@@ -413,9 +423,10 @@ def cmd_stats(args) -> int:
     cfg = cfgmod.load_config(args.config)
     date_str = (args.date or _dt.date.today().isoformat()).strip()
     try:
-        _dt.date.fromisoformat(date_str)
-    except ValueError as exc:
-        print(f"[stats] 日期格式应为 YYYY-MM-DD: {date_str!r}", file=sys.stderr)
+        date_str = _normalize_date_token(date_str)
+    except ValueError:
+        print(f"[stats] 日期格式应为 YYYY-MM-DD(也支持用 . 分割,如 2026.09.04): {args.date!r}",
+              file=sys.stderr)
         return 2
     out_rel = cfg.get("export", {}).get("out_dir", "data/outputs")
     out_dir = pathlib.Path(out_rel)
