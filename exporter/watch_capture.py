@@ -835,7 +835,9 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="watch_capture",
                                 description="回放页捕获直播间观看量(WatchCntTrend)分钟序列并写观看档(t12)。")
     p.add_argument("--room-id", default=None)
-    p.add_argument("--date", default=None, help="session_date YYYY-MM-DD(写观看档命名)")
+    p.add_argument("--date", default=None,
+                   help="session_date 日期:YYYY-MM-DD,或省略年份的 MM-DD(年份取当前年份);"
+                        "归一为 YYYY-MM-DD 后写观看档命名")
     p.add_argument("--config", default=None)
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--assist", action="store_true", help="不自动点弹窗,输出人工步骤后进入轮询")
@@ -843,6 +845,14 @@ def main(argv=None) -> int:
     p.add_argument("--out-dir", default=None)
     args = p.parse_args(argv)
     cfg = cfgmod.load_config(args.config)
+    if args.date:
+        # 与 main.py 同一口径:支持省略年份的 MM-DD,避免写出对不上导出表 session_date 的观看档
+        from extractor.sessions import normalize_date_str
+        try:
+            args.date = normalize_date_str(args.date)
+        except ValueError as exc:
+            print(f"[watch_capture] {exc}", file=_sys.stderr)
+            return 2
     if args.dry_run:
         return dry_run(cfg, args.room_id)
     if not args.room_id or not args.date:

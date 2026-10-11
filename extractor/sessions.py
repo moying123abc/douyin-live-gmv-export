@@ -39,28 +39,60 @@ class DaySessionsUnavailable(RuntimeError):
 # 允许 - 或 . 分割年月日(如 2026-09-04 / 2026.09.04);月、日允许 1~2 位。
 # 注意:刻意不纳入 / 分割(维持既有按天窗口对非法写法抛错的约定)。
 _DATE_SPLIT_RE = re.compile(r"^(\d{4})[-.](\d{1,2})[-.](\d{1,2})$")
-_DATE_FORMAT_HINT = "日期格式应为 YYYY-MM-DD(也支持用 . 分割,如 2026.09.04)"
+# 省略年份的短写法(MM-DD / M.D):年份取"当前年份"(东八区今天,可用 today 覆盖)。
+_SHORT_DATE_RE = re.compile(r"^(\d{1,2})[-.](\d{1,2})$")
+_DATE_FORMAT_HINT = (
+    "日期格式应为 YYYY-MM-DD(也支持用 . 分割,如 2026.09.04)"
+    ";也可省略年份写成 MM-DD(如 09.04),省略的年份取当前年份"
+)
 
 
-def normalize_date_str(date_str: str) -> str:
+def _current_year(today=None) -> int:
+    """省略年份时使用的年份:today(date 或 YYYY-MM-DD)优先,否则取东八区"今天"所在年。"""
+    if today is None:
+        return _dt.datetime.now(_CST).date().year
+    if isinstance(today, _dt.date):  # datetime 是 date 的子类,同样适用
+        return today.year
+    m = _DATE_SPLIT_RE.match(str(today).strip())
+    if not m:
+        raise ValueError(f"today 参数应为 date 或 YYYY-MM-DD,得到 {today!r}")
+    return int(m.group(1))
+
+
+def _check_calendar(year: int, month: int, day: int, raw) -> None:
+    """月/日越界或该日不存在(如 02-30)→ ValueError(与"格式错"区分开)。"""
+    try:
+        _dt.date(year, month, day)
+    except ValueError:
+        raise ValueError(
+            f"日期不存在: {raw!r}(解析为 {year:04d}-{month:02d}-{day:02d})"
+        ) from None
+
+
+def normalize_date_str(date_str: str, *, today=None) -> str:
     """把用户输入的日期串归一为 YYYY-MM-DD。
 
-    支持 - 或 . 分割年月日(如 2026-09-04 与 2026.09.04),月/日允许 1~2 位
-    (自动补零);其余写法(如用 / 分割)视为非法 → ValueError。
+    支持 - 或 . 分割年月日:
+      2026-09-04 / 2026.09.04   完整日期(月/日允许 1~2 位,自动补零)
+      09-04 / 9.4               省略年份的短写法 → 年份取 today(默认东八区"今天")所在年
+    其余写法(如用 / 分割)视为非法 → ValueError;月/日越界或该日不存在同样抛错。
     """
     token = str(date_str).strip()
     m = _DATE_SPLIT_RE.match(token)
-    if not m:
-        raise ValueError(f"{_DATE_FORMAT_HINT},得到 {date_str!r}")
-    year, month, day = m.group(1), int(m.group(2)), int(m.group(3))
-    return f"{year}-{month:02d}-{day:02d}"
+    if m:
+        year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    else:
+        m = _SHORT_DATE_RE.match(token)
+        if not m:
+            raise ValueError(f"{_DATE_FORMAT_HINT},得到 {date_str!r}")
+        year, month, day = _current_year(today), int(m.group(1)), int(m.group(2))
+    _check_calendar(year, month, day, date_str)
+    return f"{year:04d}-{month:02d}-{day:02d}"
 
 
-def parse_date(date_str: str) -> _dt.date:
-    try:
-        return _dt.date.fromisoformat(normalize_date_str(date_str))
-    except ValueError as exc:
-        raise ValueError(f"{_DATE_FORMAT_HINT},得到 {date_str!r}") from exc
+def parse_date(date_str: str, *, today=None) -> _dt.date:
+    """解析为 date;非法写法 / 不存在的日期 → ValueError(含具体原因)。"""
+    return _dt.date.fromisoformat(normalize_date_str(date_str, today=today))
 
 
 def day_range_epochs(date_str: str) -> tuple:

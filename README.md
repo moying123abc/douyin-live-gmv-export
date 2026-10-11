@@ -36,7 +36,7 @@ douyin-live-gmv-export/
 │   ├── cli_export_check.py# M2 CLI 层:负向拦截 + 正向 CSV 断言
 │   ├── test_m3_extra_metrics.py  # M3:开关关闭=与 M2 diff 一致 / 开启=对齐并入 / 错位拒绝
 │   ├── test_trend_row_series.py  # T8:行对象序列识别/GMV 优先/越界排除
-│   └── test_sessions_date.py     # T10:按天解析(基于 t9 真实响应)与逐场流水线
+│   ├── test_sessions_date.py     # T10:按天解析(基于 t9 真实响应)与逐场流水线
 ├── docs/
 │   ├── probe-evidence-format.md            # 证据文件格式(预定义)
 │   ├── export-schema-and-validation.md     # M2 导出表结构/校验口径/待在线复核
@@ -143,6 +143,8 @@ python main.py export --room-id <room_id> --cumulative 123456.78   # 显式给�
 # 3) 按天导入(自动解析当天每场 room_id 并逐场导出;默认今天,东八区)
 python main.py sessions --date 2026-09-04        # 列出当天已结束场次(只读)
 python main.py export --date 2026-09-04 --excel  # 当天每场各导出 CSV/Excel
+#    日期两种写法都行: 2026-09-04(完整)/ 09-04(省略年份 = 当前年份);也可写 9.4
+python main.py sessions --date 09-04             # 等价于上面的 2026-09-04
 # 产物: data\outputs\live_<YYYYMMDD>_<room_id>.csv(/xlsx),口径与 --room-id 完全一致
 ```
 
@@ -201,8 +203,10 @@ python main.py daily --date 2026-09-01 --date 2026-09-02          # 重复传参
 [daily] 共 3 日:成功 2 日,失败 1 日
 ```
 
-> 说明:`sessions` / `stats` / `export --date` 仍是**单日期**参数;需要多天时用 `daily` 一次传入多个日期。
-> 一键脚本 `统计当天.bat` 同样支持多天:`统计当天.bat 2026-09-01 2026-09-02`
+> 说明:`--date` 支持 `YYYY-MM-DD` 与**省略年份的 `MM-DD`**(年份取当前年份,如 `09-04`;两种写法也可用 `.` 分割,
+> 如 `2026.9.4` / `9.4`)。
+> `sessions` / `stats` / `export --date` 仍是**单日期**参数;需要多天时用 `daily` 一次传入多个日期。
+> 一键脚本 `统计当天.bat` 同样支持多天,也支持短写法:`统计当天.bat 2026-09-01 2026-09-02` / `统计当天.bat 09-04`
 
 ## 配置
 
@@ -278,6 +282,7 @@ key_index.ServerWatchCntTd=501(diff=-7,≈98.6%;对照稳定值 500 则 diff=-6)
     降级说明**,原成交金额日报不受影响;各场复核差数值不同但口径身份一致时**正常跨场叠加**,
     各场复核差明细写入说明文件(复核差是单场证据,不是口径差异);
 - 回放页观看捕获工具:`python -m exporter.watch_capture --room-id <room_id> --date YYYY-MM-DD`
+  (`--date` 同样支持省略年份的 `MM-DD`,如 `09-04`;会先归一为 `YYYY-MM-DD` 再写观看档)
   (`--assist` 由用户点一次齿轮→自定义指标→勾选→确定;自动模式优先尝试)。**UI 约束(用户
   确认)**:趋势图同屏最多 6 个指标,自动配置先取消非必要项(默认保留:成交金额、成交订单数、
   在线人数、进入人数、直播间观看量、千次观看成交金额 = 6 项),**成交金额(gmv 分子)始终

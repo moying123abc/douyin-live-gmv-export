@@ -23,11 +23,14 @@
   # T10 按天:列出/导出某日已结束场次(自动解析当天每场 room_id):
   python main.py sessions --date 2026-09-04
   python main.py export --date 2026-09-04 --excel
+  # --date 也可省略年份(取当前年份):09-04 / 9.4 等价于 2026-09-04
+  python main.py sessions --date 09-04
   # 精简表:导出时加 --compact(另生成 _compact.csv:time 只含 HH:MM,只保留 gmv>0 行);
   # 或对已导出的完整表执行:
   python main.py trim --in data/outputs/live_20260904_7000000000000000001.csv
   # 某天场次级汇总统计(--auto 在分钟量表缺失时自动在线补导出;也可双击"统计当天.bat"):
   python main.py stats --date 2026-09-04
+  python main.py stats --date 09-04
   python main.py stats --date 2026-09-04 --auto
 """
 from __future__ import annotations
@@ -38,6 +41,9 @@ import pathlib
 import re
 import sys
 
+# 四个子命令 --date 的统一说明(完整日期 + 省略年份的短写法)
+_HINT_DATE = ("日期支持 YYYY-MM-DD,或省略年份的 MM-DD(年份取当前年份);"
+              "均可用 - 或 . 分割,如 2026.09.04 / 09.04")
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -62,7 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_export = sub.add_parser("export", help="导出整场分钟成交金额序列为 CSV/Excel,含内置校验")
     p_export.add_argument("--room-id", default=None, help="直播间 room_id(已结束场次;在线导出用)")
     p_export.add_argument("--date", default=None,
-                          help="按天导出 YYYY-MM-DD(也支持用 . 分割,如 2026.09.04):自动解析当天每场 room_id 并各导出一个文件(默认今天,东八区)")
+                          help="按天导出:" + _HINT_DATE + ";自动解析当天每场 room_id 并各导出一个文件(默认今天,东八区)")
     p_export.add_argument("--config", default=None, help="配置文件路径")
     p_export.add_argument("--fixture", default=None,
                           help="离线夹具 JSON 路径(recorded sample;无登录/离线自测用)")
@@ -86,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_stats = sub.add_parser("stats", help="某天场次级汇总统计(读 data/outputs 已导出的分钟量表;--auto 缺失时自动在线补导出)")
     p_stats.add_argument("--date", default=None,
-                         help="日期 YYYY-MM-DD(也支持用 . 分割,如 2026.09.04;默认今天,东八区)")
+                         help=_HINT_DATE + "(默认今天,东八区)")
     p_stats.add_argument("--auto", action="store_true",
                          help="当天分钟量表缺失时自动执行 export --date 在线补导出后再统计")
     p_stats.add_argument("--out", default=None, help="汇总 CSV 输出路径(默认 data/outputs/stats_<日期>.csv)")
@@ -94,8 +100,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_stats.set_defaults(func=cmd_stats)
 
     p_daily = sub.add_parser("daily", help="一键日报:导出某天(可多天)全部已结束场次并生成\"两列表日报文件夹\"(成交点 HH:MM+gmv + 日报汇总)")
-    p_daily.add_argument("--date", default=None, action="append", nargs="+", metavar="YYYY-MM-DD",
-                         help="日期 YYYY-MM-DD(也支持用 . 分割,如 2026.09.01;默认今天,东八区);支持一次传多个日期:"
+    p_daily.add_argument("--date", default=None, action="append", nargs="+", metavar="DATE",
+                         help=_HINT_DATE + "(默认今天,东八区);支持一次传多个日期:"
                               "空格分隔(--date 2026-09-01 2026-09-02)、逗号分隔"
                               "(--date 2026-09-01,2026-09-02)或重复传入(--date 2026-09-01 --date 2026-09-02);"
                               "每个日期各生成一个 日报_<YYYYMMDD> 文件夹,单日失败不影响其他日")
@@ -111,7 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_sessions = sub.add_parser("sessions", help="列出指定日期(东八区)该账号已结束场次(只读)")
     p_sessions.add_argument("--date", default=None,
-                            help="日期 YYYY-MM-DD(也支持用 . 分割,如 2026.09.04;默认今天,东八区)")
+                            help=_HINT_DATE + "(默认今天,东八区)")
     p_sessions.add_argument("--config", default=None, help="配置文件路径")
     p_sessions.set_defaults(func=cmd_sessions)
 
@@ -308,13 +314,15 @@ def _daily_one_date(cfg: dict, date_str: str, out_dir: pathlib.Path, *,
     return 0, folder
 
 
-def _normalize_date_token(token: str) -> str:
-    """把用户输入的单个日期串归一为 YYYY-MM-DD(支持用 . 分割,如 2026.09.04)。
+def _normalize_date_token(token: str, *, today=None) -> str:
+    """把用户输入的单个日期串归一为 YYYY-MM-DD。
 
+    支持用 - 或 . 分割,如 2026.09.04;也支持**省略年份**的 MM-DD(如 09-04 / 9.4),
+    省略的年份取 today(默认东八区"今天")所在年。
     复用 extractor.sessions.normalize_date_str 作为唯一天花板;非法写法抛 ValueError。
     """
     from extractor.sessions import normalize_date_str
-    return normalize_date_str(token)
+    return normalize_date_str(token, today=today)
 
 
 def _parse_daily_dates(raw, *, today: str | None = None) -> list:
@@ -325,6 +333,10 @@ def _parse_daily_dates(raw, *, today: str | None = None) -> list:
       --date 2026-09-01 2026-09-02          空格分隔多日
       --date 2026-09-01,2026-09-02          逗号分隔(兼容中文逗号/分号)
       --date 2026-09-01 --date 2026-09-02   重复传参
+
+    单个日期支持两种格式(可用 - 或 . 分割):
+      2026-09-01   完整日期
+      09-01        省略年份 → 年份取 today(默认今天)所在年
 
     未提供 --date 时返回 [今天(本地日期)]。
     任一日期非法 → ValueError:整批拒绝并给出用法提示,不做"半截工作"。
@@ -338,13 +350,15 @@ def _parse_daily_dates(raw, *, today: str | None = None) -> list:
             tokens.extend(p for p in re.split(r"[,，;；\s]+", str(value or "")) if p)
     if not tokens:
         raise ValueError("未解析到任何日期。用法: --date 2026-09-01 [2026-09-02 ...]")
+    base_today = today or _dt.date.today().isoformat()
     ordered: list = []
     for token in tokens:
         try:
-            day = _dt.date.fromisoformat(_normalize_date_token(token)).isoformat()
+            day = _normalize_date_token(token, today=base_today)
         except ValueError:
             raise ValueError(
-                "日期格式应为 YYYY-MM-DD(也支持用 . 分割,如 2026.09.01): "
+                "日期格式应为 YYYY-MM-DD,或省略年份的 MM-DD(支持 - 或 . 分割,"
+                "如 2026-09-01 / 09-01,省略年份时取当前年份): "
                 f"{token!r}"
                 "(多个日期可用空格或逗号分隔,例如 --date 2026-09-01 2026-09-02)"
             ) from None
@@ -425,7 +439,8 @@ def cmd_stats(args) -> int:
     try:
         date_str = _normalize_date_token(date_str)
     except ValueError:
-        print(f"[stats] 日期格式应为 YYYY-MM-DD(也支持用 . 分割,如 2026.09.04): {args.date!r}",
+        print(f"[stats] 日期格式应为 YYYY-MM-DD,或省略年份的 MM-DD"
+              f"(支持 - 或 . 分割,如 2026.09.04 / 09.04,省略年份时取当前年份): {args.date!r}",
               file=sys.stderr)
         return 2
     out_rel = cfg.get("export", {}).get("out_dir", "data/outputs")
