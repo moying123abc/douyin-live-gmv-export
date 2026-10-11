@@ -28,6 +28,7 @@ import pathlib
 import time as _time
 from typing import Any, Dict, List, Optional
 
+import accounts as acctmod
 import config as cfgmod
 import gpm_probe as _gp  # 复用捕获/DOM/序列助手(顶层仅标准库,离线可导入)
 
@@ -821,7 +822,7 @@ def dry_run(cfg: dict, room_id: str) -> int:
     print("  2) python main.py export --room-id <room_id> --date YYYY-MM-DD --capture-watch")
     print("     或 python main.py daily --date YYYY-MM-DD --capture-watch")
     print("  3) 单独捕获验证: python -m exporter.watch_capture --room-id <room_id>"
-          " --date YYYY-MM-DD [--assist]")
+          " --date YYYY-MM-DD [--assist] [--account <账号名>]")
     print()
     print("[watch_capture] 边界: 只读本账号数据;复用登录态;不点 商品/营销/违规/广告;样例脱敏;")
     print("             profile/凭据不提交。")
@@ -839,12 +840,22 @@ def main(argv=None) -> int:
                    help="session_date 日期:YYYY-MM-DD,或省略年份的 MM-DD(年份取当前年份);"
                         "归一为 YYYY-MM-DD 后写观看档命名")
     p.add_argument("--config", default=None)
+    p.add_argument("--account", default=None,
+                   help="账号名(一个账号一个独立登录 profile;缺省用 config.yaml 的 browser.account,"
+                        "再缺省为默认账号。用 python main.py accounts 查看已有账号)")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--assist", action="store_true", help="不自动点弹窗,输出人工步骤后进入轮询")
     p.add_argument("--poll-seconds", type=int, default=60)
     p.add_argument("--out-dir", default=None)
     args = p.parse_args(argv)
     cfg = cfgmod.load_config(args.config)
+    try:
+        acctmod.apply_account(cfg, args.account)
+    except acctmod.AccountError as exc:
+        print(f"[watch_capture] {exc}", file=_sys.stderr)
+        print("[watch_capture] 示例: python -m exporter.watch_capture --account spa2 "
+              "--room-id <room_id> --date YYYY-MM-DD", file=_sys.stderr)
+        return 2
     if args.date:
         # 与 main.py 同一口径:支持省略年份的 MM-DD,避免写出对不上导出表 session_date 的观看档
         from extractor.sessions import normalize_date_str

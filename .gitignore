@@ -2,6 +2,9 @@
 # 浏览器持久化 profile:包含登录凭据 / 会话 Cookie,严禁提交
 data/browser_profile/
 
+# 多账号:data/accounts/<名字>/browser_profile 同样是登录凭据目录(以及账号登记 json),整体忽略
+data/accounts/
+
 # 用户本地配置(可含个人覆盖);模板见 config.example.yaml
 config.yaml
 

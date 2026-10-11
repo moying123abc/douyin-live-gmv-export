@@ -21,8 +21,9 @@
 
 ```
 douyin-live-gmv-export/
-├── main.py                # CLI 入口:login / probe / export / trim / sessions / stats / daily
+├── main.py                # CLI 入口:login / probe / export / trim / sessions / stats / daily / accounts
 ├── auth.py                # 登录态管理:持久化 profile + 人工扫码登录
+├── accounts.py            # 多账号:一个账号一个独立持久化 profile(--account 切换)
 ├── probe.py               # 分层只读探测(L0/L1/L3),输出 data/probe/*.json 证据
 ├── config.py              # 轻量配置加载(标准库;PyYAML 可选)
 ├── config.example.yaml    # 配置样例(复制为 config.yaml 使用,不入库)
@@ -37,15 +38,18 @@ douyin-live-gmv-export/
 │   ├── test_m3_extra_metrics.py  # M3:开关关闭=与 M2 diff 一致 / 开启=对齐并入 / 错位拒绝
 │   ├── test_trend_row_series.py  # T8:行对象序列识别/GMV 优先/越界排除
 │   ├── test_sessions_date.py     # T10:按天解析(基于 t9 真实响应)与逐场流水线
+│   ├── test_date_short_form.py   # --date 短写法(MM-DD,年份取当前年)契约与 CLI 回归
 ├── docs/
 │   ├── probe-evidence-format.md            # 证据文件格式(预定义)
 │   ├── export-schema-and-validation.md     # M2 导出表结构/校验口径/待在线复核
 │   ├── 指标可得性结论.md                   # M3:订单/人数等扩展指标探测结论与启用步骤
 │   ├── 联调结论-2026-09-04.md              # T8 真机联调:room_minute_indicator 行对象序列/L1 命中/口径核对
 │   ├── 场次枚举与按场次导出.md             # T9:账户可回放场次清单(每场=独立 room_id)+ 按场次 export 命令
-│   └── 按天导出-日期口径.md                # T10:sessions/export --date 用法、CST 当日窗口与文件名规范
+│   ├── 按天导出-日期口径.md                # T10:sessions/export --date 用法、CST 当日窗口与文件名规范
+│   └── 多账号切换.md                       # 多账号:原理、实测证据(目录隔离/复用)、常见问题
 └── data/
     ├── browser_profile/   # 持久化登录 profile(自动创建,勿提交)
+    ├── accounts/          # 具名账号的 profile 与账号登记(自动创建,勿提交)
     ├── probe/             # 探测证据输出
     ├── outputs/           # 导出结果(自动创建,不入库)
     └── samples/           # 离线夹具(合成样例)与生成脚本
@@ -105,8 +109,37 @@ python main.py login
   - 一直停在"仍在等待人工登录…"→ 确认那个**有头浏览器窗口**已经弹出且没有被其他窗口遮挡,在窗口内完成扫码;窗口若被关掉请重跑命令。
   - 提示登录成功、但之后命令报 `status_code=8 用户未登录`→ 会话已失效(或该账号无此数据权限):
     删除 `data\browser_profile\` 后重跑 `python main.py login` 重新扫码。
-  - 换账号 / 换直播间权限:同样先删除 `data\browser_profile\` 再重新登录。
+  - 换账号 / 换直播间权限:**推荐用多账号**(见下一节 `python main.py login --account <名字>`:
+    每个账号一份独立 profile,互不干扰);也可以删除 `data\browser_profile\` 后重新登录(会丢掉原账号的登录态)。
 - 会话过期时重跑 `login` 即可;若需强制重新登录,删除 `data/browser_profile/` 后重跑。
+
+## 多账号切换(一个账号一个独立登录 profile)
+
+需要同时用多个抖音账号(比如两家店)时,用 `--account <账号名>` 各开一份登录态,互不干扰:
+
+```powershell
+# 1) 给第二个账号登录一次(有头窗口,人工扫码)
+python main.py login --account spa2
+
+# 2) 之后所有命令带上同一个 --account,自动复用该账号的登录态
+python main.py sessions --account spa2 --date 09-04
+python main.py daily    --account spa2 --date 09-04
+python main.py export   --account spa2 --room-id 7681479579405011739 --date 2026-09-04
+
+# 3) 看现在有哪些账号(默认账号前面带 *)
+python main.py accounts
+```
+
+- **不传 `--account` 时行为完全不变**:仍用 `config.yaml` 的 `browser.profile_dir`(默认
+  `data/browser_profile/`),老用户升级后无需任何迁移。
+- 具名账号的登录态在 `data/accounts/<账号名>/browser_profile/`,账号登记(页面账号名、最近登录时间)
+  在 `data/accounts/<账号名>/account.json`;两者都在 `.gitignore` 内,**严禁提交**。
+- 账号名规则:字母或数字开头、1–32 位,可用字母数字与 `_ - .`(如 `spa2`、`shop-a`);
+  非法名字直接以退出码 2 拒绝并给出中文原因,**不会静默回退到默认账号**(避免串号)。
+- 想把账号固定下来:在 `config.yaml` 写 `browser.account: spa2`(命令行 `--account` 仍优先)。
+- 同一个账号**不要并发**跑多个命令(同一个 profile 目录同时只能被一个 Chromium 实例使用)。
+- 原理与实测证据(两个目录的登录态完全隔离、把目录整份复制出去后仍判定"已登录")见
+  [docs/多账号切换.md](docs/多账号切换.md)。
 
 ## 探测(只读,定位数据来源)
 
@@ -215,7 +248,9 @@ python main.py daily --date 2026-09-01 --date 2026-09-02          # 重复传参
 ```yaml
 browser:
   headful: true            # 登录必须有头;建议保持 true
-  profile_dir: data/browser_profile
+  profile_dir: data/browser_profile  # 默认账号的持久化登录 profile
+  accounts_dir: data/accounts        # 具名账号根目录:一个账号一个子目录(已被 git 忽略)
+  account: ""                        # 想固定账号就写名字(如 spa2);命令行 --account 优先
   wait_login_seconds: 1800 # 等待人工扫码上限
 probe:
   load_wait_seconds: 25    # 打开回放页后的等待(含网络捕获窗口)

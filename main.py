@@ -32,6 +32,9 @@
   python main.py stats --date 2026-09-04
   python main.py stats --date 09-04
   python main.py stats --date 2026-09-04 --auto
+  # 多账号(一个账号 = 一个独立登录 profile;先列出: python main.py accounts):
+  python main.py login --account spa2
+  python main.py daily --account spa2 --date 09-04
 """
 from __future__ import annotations
 
@@ -45,6 +48,38 @@ import sys
 _HINT_DATE = ("日期支持 YYYY-MM-DD,或省略年份的 MM-DD(年份取当前年份);"
               "均可用 - 或 . 分割,如 2026.09.04 / 09.04")
 
+
+# 六个子命令 --account 的统一说明(多账号切换;一个账号一个独立 profile 目录)
+_HINT_ACCOUNT = ("账号名(多账号):使用 data/accounts/<名字> 下的独立登录 profile;"
+                 "省略时用默认账号(browser.profile_dir),也可在 config.yaml 里设 browser.account;"
+                 "列出已有账号:python main.py accounts")
+
+
+def _add_account_arg(p) -> None:
+    """给子命令加 --account(多账号切换;账号名非法在加载配置阶段即报错退出,不会打开浏览器)。"""
+    p.add_argument("--account", default=None, help=_HINT_ACCOUNT)
+
+
+def _load_cfg(args):
+    """加载配置并应用账号(--account > config.browser.account > 默认账号)。
+
+    账号名非法时打印中文原因并返回 None(调用方返回退出码 2);此时不创建任何
+    profile 目录、也不打开浏览器。
+    """
+    import accounts as acctmod
+    import config as cfgmod
+
+    cfg = cfgmod.load_config(args.config)
+    try:
+        acctmod.apply_account(cfg, getattr(args, "account", None))
+    except acctmod.AccountError as exc:
+        print(f"[main] {exc}", file=sys.stderr)
+        print("[main] 账号名示例: default(默认账号) / spa2 / shop-2;列出已有账号: python main.py accounts",
+              file=sys.stderr)
+        return None
+    return cfg
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="douyin-live-gmv-export",
@@ -54,6 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_login = sub.add_parser("login", help="首次人工扫码登录(有头窗口),建立持久化会话")
     p_login.add_argument("--config", default=None, help="配置文件路径(默认读项目根 config.yaml)")
+    _add_account_arg(p_login)
     p_login.set_defaults(func=cmd_login)
 
     p_probe = sub.add_parser("probe", help="分层只读探测回放页数据来源,输出 data/probe/*.json 证据")
@@ -63,6 +99,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="不打开浏览器、不采集数据,只打印探测计划与人工引导")
     p_probe.add_argument("--layer", choices=["all", "L0", "L1", "L3"], default="all",
                          help="限定尝试层级(默认 all:L0→L1→L3)")
+    _add_account_arg(p_probe)
     p_probe.set_defaults(func=cmd_probe)
 
     p_export = sub.add_parser("export", help="导出整场分钟成交金额序列为 CSV/Excel,含内置校验")
@@ -83,6 +120,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.add_argument("--capture-watch", action="store_true",
                           help="在线导出后自动尝试捕获回放页 直播间观看量(WatchCntTrend)分钟序列,"
                                "写观看档供小时 GPM 以真实看播量为分母输出(需已登录;失败优雅降级)")
+    _add_account_arg(p_export)
     p_export.set_defaults(func=cmd_export)
 
     p_trim = sub.add_parser("trim", help="把已导出的完整分钟量表转换为\"成交点精简表\"(time 只含 HH:MM;只保留 gmv>0 行)")
@@ -97,6 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="当天分钟量表缺失时自动执行 export --date 在线补导出后再统计")
     p_stats.add_argument("--out", default=None, help="汇总 CSV 输出路径(默认 data/outputs/stats_<日期>.csv)")
     p_stats.add_argument("--config", default=None, help="配置文件路径")
+    _add_account_arg(p_stats)
     p_stats.set_defaults(func=cmd_stats)
 
     p_daily = sub.add_parser("daily", help="一键日报:导出某天(可多天)全部已结束场次并生成\"两列表日报文件夹\"(成交点 HH:MM+gmv + 日报汇总)")
@@ -113,13 +152,19 @@ def build_parser() -> argparse.ArgumentParser:
                               "含 gpm 的成交点表/小时 GPM 表;需已登录,失败优雅降级为说明)")
     p_daily.add_argument("--capture-watch", action="store_true",
                          help="(兼容)显式开启观看档捕获——已是默认行为,无需再传")
+    _add_account_arg(p_daily)
     p_daily.set_defaults(func=cmd_daily)
 
     p_sessions = sub.add_parser("sessions", help="列出指定日期(东八区)该账号已结束场次(只读)")
     p_sessions.add_argument("--date", default=None,
                             help=_HINT_DATE + "(默认今天,东八区)")
     p_sessions.add_argument("--config", default=None, help="配置文件路径")
+    _add_account_arg(p_sessions)
     p_sessions.set_defaults(func=cmd_sessions)
+
+    p_accounts = sub.add_parser("accounts", help="列出已配置的账号(多账号切换用;只读,不打开浏览器)")
+    p_accounts.add_argument("--config", default=None, help="配置文件路径")
+    p_accounts.set_defaults(func=cmd_accounts)
 
     return parser
 
@@ -128,7 +173,9 @@ def cmd_login(args) -> int:
     import auth
     import config as cfgmod
 
-    cfg = cfgmod.load_config(args.config)
+    cfg = _load_cfg(args)
+    if cfg is None:
+        return 2
     return auth.perform_login(cfg)
 
 
@@ -136,7 +183,9 @@ def cmd_probe(args) -> int:
     import config as cfgmod
     import probe
 
-    cfg = cfgmod.load_config(args.config)
+    cfg = _load_cfg(args)
+    if cfg is None:
+        return 2
     if args.dry_run:
         return probe._probe_dry_run(cfg, args.room_id)
     if not args.room_id:
@@ -149,7 +198,9 @@ def cmd_sessions(args) -> int:
     import config as cfgmod
     from extractor import sessions as sessions_mod
 
-    cfg = cfgmod.load_config(args.config)
+    cfg = _load_cfg(args)
+    if cfg is None:
+        return 2
     date_str = (args.date or _dt.date.today().isoformat()).strip()
     try:
         day = sessions_mod.parse_date(date_str)
@@ -167,6 +218,42 @@ def cmd_sessions(args) -> int:
     print(f"[sessions] {day.isoformat()} 已结束场次 {len(sessions)} 场:")
     for s in sessions:
         print("  -", sessions_mod.format_session_line(s))
+    return 0
+
+
+def cmd_accounts(args) -> int:
+    """列出账号(只读,不打开浏览器、不读任何 Cookie):一个账号 = 一个独立持久化 profile。"""
+    import accounts as acctmod
+    import config as cfgmod
+
+    cfg = cfgmod.load_config(args.config)
+    rows = acctmod.list_accounts(cfg)
+    cfg_account = str((cfg.get("browser", {}) or {}).get("account") or "").strip()
+    print(f"[accounts] 共 {len(rows)} 个账号(一个账号 = 一个独立登录 profile,登录态互不影响):")
+    for row in rows:
+        acc = row["account"]
+        is_default = acc == acctmod.DEFAULT_ACCOUNT
+        label = "默认账号(不传 --account 时使用)" if is_default else "具名账号"
+        print(f"[accounts] {'*' if is_default else ' '} {acc:<12} {label}"
+              f"  profile: {acctmod.display_path(row['profile_dir'])}")
+        meta = row["meta"] or {}
+        nick = str(meta.get("nickname") or "").strip()
+        if meta.get("logged_in_at"):
+            tail = "(页面账号名: " + nick + ")" if nick else ""
+            if not row["ready"]:
+                tail += "  [profile 目录已不存在]"
+            print(f"[accounts]      上次登录: {meta['logged_in_at']}{tail}")
+        elif row["ready"]:
+            print("[accounts]      有 profile 目录,但没有登录登记(早于本功能登录的账号)")
+        else:
+            print("[accounts]      尚未登录过")
+    print("[accounts] 用法: python main.py <命令> --account <名字>"
+          "  例如 python main.py daily --account spa2 --date 09-04")
+    print("[accounts] 首次使用某账号: python main.py login --account <名字>(有头窗口扫码一次)")
+    print("[accounts] 常用一个账号: 在 config.yaml 里写 browser.account: <名字>,之后可省略 --account"
+          + (f"(当前配置: {cfg_account})" if cfg_account else "(当前配置: 未设置)"))
+    print("[accounts] 备注: 会话过期后重跑 login --account <名字> 即可;"
+          "删除某账号 = 直接删掉它的 profile 目录(见上),不会影响其他账号")
     return 0
 
 
@@ -379,7 +466,9 @@ def cmd_daily(args) -> int:
 
     import config as cfgmod
 
-    cfg = cfgmod.load_config(args.config)
+    cfg = _load_cfg(args)
+    if cfg is None:
+        return 2
     try:
         dates = _parse_daily_dates(getattr(args, "date", None))
     except ValueError as exc:
@@ -434,7 +523,9 @@ def cmd_stats(args) -> int:
     import config as cfgmod
     from extractor import daily_stats
 
-    cfg = cfgmod.load_config(args.config)
+    cfg = _load_cfg(args)
+    if cfg is None:
+        return 2
     date_str = (args.date or _dt.date.today().isoformat()).strip()
     try:
         date_str = _normalize_date_token(date_str)
@@ -583,7 +674,9 @@ def cmd_export_date(args) -> int:
     import config as cfgmod
     from extractor import sessions as sessions_mod
 
-    cfg = cfgmod.load_config(args.config)
+    cfg = _load_cfg(args)
+    if cfg is None:
+        return 2
     date_str = (args.date or _dt.date.today().isoformat()).strip()
     try:
         day = sessions_mod.parse_date(date_str)
@@ -677,7 +770,9 @@ def cmd_export(args) -> int:
     from exporter import schema as schema_mod
     from exporter import to_csv_excel
 
-    cfg = cfgmod.load_config(args.config)
+    cfg = _load_cfg(args)
+    if cfg is None:
+        return 2
     if args.fixture:
         try:
             rows, meta = trend.load_fixture(args.fixture)

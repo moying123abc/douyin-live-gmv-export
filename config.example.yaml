@@ -12,7 +12,9 @@
 
 browser:
   headful: true                          # 首次人工扫码登录必须为 true(有头可见窗口);登录后仍建议保持 true
-  profile_dir: data/browser_profile      # 持久化 Chromium profile(相对本项目根;自动创建;勿提交)
+  profile_dir: data/browser_profile      # 默认账号的持久化 Chromium profile(相对本项目根;自动创建;勿提交)
+  accounts_dir: data/accounts            # 多账号:具名账号的 profile 根目录,一账号一目录(含登录凭据;整体已忽略)
+  account: ""                            # 不传 --account 时默认使用的账号名(空 = 用上面的 profile_dir);--account 优先级更高
   login_url: https://eos.douyin.com/
   login_ok_url_prefix: https://eos.douyin.com   # 会话校验用的期望域名前缀
   wait_login_seconds: 1800               # 等待人工扫码/登录的最长秒数

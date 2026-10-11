@@ -28,6 +28,10 @@ DEFAULT_CONFIG = {
     "browser": {
         "headful": True,
         "profile_dir": "data/browser_profile",
+        # 多账号(见 accounts.py / docs/多账号切换.md):一个账号 = 一个独立 profile 目录。
+        # accounts_dir 是具名账号的根目录;account 是"不传 --account 时用的账号名"(空=默认账号)
+        "accounts_dir": "data/accounts",
+        "account": "",
         "login_url": "https://eos.douyin.com/",
         "login_ok_url_prefix": "https://eos.douyin.com",
         "wait_login_seconds": 1800,
