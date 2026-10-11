@@ -24,6 +24,10 @@ douyin-live-gmv-export/
 ├── main.py                # CLI 入口:login / probe / export / trim / sessions / stats / daily / accounts
 ├── auth.py                # 登录态管理:持久化 profile + 人工扫码登录
 ├── accounts.py            # 多账号:一个账号一个独立持久化 profile(--account 切换)
+├── gui.py                 # 图形界面(启动助手):一键日报 / 导出 / 统计 / 账号切换;只是 main.py 的壳
+├── gui_core.py            # 界面逻辑(纯函数,不依赖 tkinter,可离线测试)
+├── 启动助手.bat          # 双击打开图形界面(自动挑一个 >=3.9 的 pythonw;GBK 编码)
+├── 统计当天.bat          # 双击也打开图形界面(「一键日报」默认今天);命令行等价 python main.py daily
 ├── probe.py               # 分层只读探测(L0/L1/L3),输出 data/probe/*.json 证据
 ├── config.py              # 轻量配置加载(标准库;PyYAML 可选)
 ├── config.example.yaml    # 配置样例(复制为 config.yaml 使用,不入库)
@@ -39,6 +43,8 @@ douyin-live-gmv-export/
 │   ├── test_trend_row_series.py  # T8:行对象序列识别/GMV 优先/越界排除
 │   ├── test_sessions_date.py     # T10:按天解析(基于 t9 真实响应)与逐场流水线
 │   ├── test_date_short_form.py   # --date 短写法(MM-DD,年份取当前年)契约与 CLI 回归
+│   ├── test_accounts.py          # 多账号:账号名校验 / profile 切换 / CLI 拒绝非法账号
+│   └── test_gui_core.py          # 图形界面:日期口径 / 参数拼装 / 产物路径 / .bat 编码 / 建窗口
 ├── docs/
 │   ├── probe-evidence-format.md            # 证据文件格式(预定义)
 │   ├── export-schema-and-validation.md     # M2 导出表结构/校验口径/待在线复核
@@ -68,6 +74,27 @@ python -m playwright install chromium
 ```
 
 > 说明:`main.py --help`、`probe.py --dry-run` 等命令在未安装 playwright 的环境也能运行(依赖为调用时导入);真正打开页面前才需要浏览器内核。
+
+## 图形界面(启动助手:双击就能用)
+
+不想敲命令就**双击 `启动助手.bat`**,会打开一个窗口,里面五个页签:
+
+| 页签 | 干什么 | 等价命令 |
+| --- | --- | --- |
+| 一键日报 | 导出当天的场次并生成 `日报_<YYYYMMDD>` 文件夹(日期可一次填多个) | `python main.py daily --date 09-04` |
+| 按天导出 | 只导出分钟量表(可选另存 Excel / 精简表 / 观看档) | `python main.py export --date 09-04 --excel` |
+| 汇总统计 | 读已导出的分钟量表做当天场次级汇总 | `python main.py stats --date 09-04` |
+| 账号 | 看已有账号、用新名字扫码登录、打开账号目录 | `python main.py accounts` / `login --account spa2` |
+| 高级工具 | 精简表转换(trim)与只读探测(probe --dry-run) | `python main.py trim --in ...` |
+
+- **账号切换就在右上角**:工具栏选哪个账号,「登录 / 检查登录状态」和所有导出就都用它(等价于命令行的 `--account`);
+  首次使用某个账号:工具栏选中它 → 点「登录 / 检查登录状态」→ 在弹出的浏览器里扫码一次,之后自动复用。
+- 界面**只是 `main.py` 的壳**:每次点击实际执行的命令行都会打印在窗口日志里,可以直接复制到终端重放;
+  校验失败、未登录等情况仍由命令行判断,界面绕不过去。
+- 日期两种写法都收:`2026-09-04` 或省略年份的 `09-04`(年份取当前年);多天用空格或逗号分隔(如 `09-01 09-02`)。
+- 启动脚本会自动挑一个 **Python 3.9+ 的 `pythonw.exe`**(优先项目虚拟环境,其次本机 Python);
+  若提示找不到,直接命令行跑 `python gui.py` 也能开界面(会多一个控制台窗口)。
+- `统计当天.bat` 现在也是打开这个界面(以前那个“一键出日报”就是「一键日报」页签)。
 
 ## 快速验证(不需要登录、不需要账号)
 
@@ -137,6 +164,7 @@ python main.py accounts
 - 账号名规则:字母或数字开头、1–32 位,可用字母数字与 `_ - .`(如 `spa2`、`shop-a`);
   非法名字直接以退出码 2 拒绝并给出中文原因,**不会静默回退到默认账号**(避免串号)。
 - 想把账号固定下来:在 `config.yaml` 写 `browser.account: spa2`(命令行 `--account` 仍优先)。
+- 不想记参数就用图形界面:双击 `启动助手.bat`,右上角下拉框选账号即可(等价于 `--account`),「账号」页签里能用新名字登录。
 - 同一个账号**不要并发**跑多个命令(同一个 profile 目录同时只能被一个 Chromium 实例使用)。
 - 原理与实测证据(两个目录的登录态完全隔离、把目录整份复制出去后仍判定"已登录")见
   [docs/多账号切换.md](docs/多账号切换.md)。

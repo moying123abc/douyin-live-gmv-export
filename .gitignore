@@ -19,6 +19,9 @@ __pycache__/
 venv/
 .pytest_cache/
 
+# 输入法(如搜狗)在程序工作目录写下的日志(开图形界面时可能出现)
+debug.log
+
 # 编辑器 / 系统
 .idea/
 .vscode/
