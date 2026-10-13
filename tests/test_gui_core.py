@@ -198,9 +198,14 @@ def test_gui_core_never_touches_browser():
 
 
 def test_gui_module_and_launcher():
-    """gui.py 能编译;启动助手.bat 必须是 GBK 编码(cmd 按 ANSI 解析 .bat)。"""
+    """gui.py 能编译;双击入口 启动助手.pyw 存在且能编译;启动助手.bat 保持 GBK 编码。"""
     py_compile.compile(str(ROOT / "gui.py"), doraise=True)
     py_compile.compile(str(ROOT / "gui_core.py"), doraise=True)
+    pyw = ROOT / "启动助手.pyw"
+    assert pyw.is_file(), "双击入口 启动助手.pyw 必须在"
+    py_compile.compile(str(pyw), doraise=True)
+    pyw_text = pyw.read_text(encoding="utf-8")
+    assert "gui.py" in pyw_text and "pythonw" in pyw_text
     launcher = ROOT / "启动助手.bat"
     assert launcher.is_file()
     assert not (ROOT / "统计当天.bat").exists(), "统计当天.bat 已合并进图形界面,不应再存在"
