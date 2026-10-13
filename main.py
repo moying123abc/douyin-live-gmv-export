@@ -28,7 +28,7 @@
   # 精简表:导出时加 --compact(另生成 _compact.csv:time 只含 HH:MM,只保留 gmv>0 行);
   # 或对已导出的完整表执行:
   python main.py trim --in data/outputs/live_20260904_7000000000000000001.csv
-  # 某天场次级汇总统计(--auto 在分钟量表缺失时自动在线补导出;也可双击"统计当天.bat"):
+  # 某天场次级汇总统计(--auto 在分钟量表缺失时自动在线补导出;也可用图形界面「汇总统计」页签):
   python main.py stats --date 2026-09-04
   python main.py stats --date 09-04
   python main.py stats --date 2026-09-04 --auto

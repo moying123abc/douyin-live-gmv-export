@@ -202,14 +202,11 @@ def test_gui_module_and_launcher():
     py_compile.compile(str(ROOT / "gui.py"), doraise=True)
     py_compile.compile(str(ROOT / "gui_core.py"), doraise=True)
     launcher = ROOT / "启动助手.bat"
-    daily = ROOT / "统计当天.bat"
-    assert launcher.is_file() and daily.is_file()
+    assert launcher.is_file()
+    assert not (ROOT / "统计当天.bat").exists(), "统计当天.bat 已合并进图形界面,不应再存在"
     text = launcher.read_bytes().decode("gbk")
     assert "gui.py" in text and "pythonw" in text
     assert "抖音直播数据导出助手" in text, "启动助手.bat 应保持 GBK 编码(否则 cmd 会乱解析)"
-    wrapper = daily.read_bytes().decode("gbk")
-    assert "启动助手.bat" in wrapper
-    assert "python main.py daily" in wrapper
 
 
 def test_gui_window_can_be_built():
