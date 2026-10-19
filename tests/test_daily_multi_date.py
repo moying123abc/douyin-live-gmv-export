@@ -143,6 +143,51 @@ def test_mixed_success_and_failure_continues():
         assert "共 2 日:成功 1 日,失败 1 日" in r.stdout
 
 
+def test_range_expands_to_all_days():
+    """区间写法:一次跑 3 天,产出 3 个日报目录(单个 --date 参数,含区间)。"""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td); outs = tmp / "outs"; outs.mkdir()
+        for d in ("2026-09-01", "2026-09-02", "2026-09-03"):
+            _seed(outs, d)
+        r = _run(_daily_args(_cfg(tmp, outs), "2026-09-01~2026-09-03"))
+        assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
+        assert _report_dirs(outs) == ["日报_20260901", "日报_20260902", "日报_20260903"]
+        for name in _report_dirs(outs):
+            _assert_report_complete(outs / name)
+        assert "共 3 日:成功 3 日,失败 0 日" in r.stdout
+        assert "共 3 个日期" in r.stdout
+
+
+def test_parse_daily_dates_range_contract():
+    """_parse_daily_dates 的区间契约(纯函数):展开、混用、去重、各种非法一律拒绝。"""
+    f = main_mod._parse_daily_dates
+    # 完整日期区间(含两端)
+    assert f(["2026-09-01~2026-09-03"]) == ["2026-09-01", "2026-09-02", "2026-09-03"]
+    # 两端省略年份 → 取 today 所在年
+    assert f(["09-01..09-03"], today="2026-07-01") == [
+        "2026-09-01", "2026-09-02", "2026-09-03"]
+    # 结束端只写日 → 沿用起点年月(同月内)
+    assert f(["2026-09-28~30"]) == ["2026-09-28", "2026-09-29", "2026-09-30"]
+    assert f(["2026-09-28~10-02"]) == [
+        "2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02"]
+    # 至 / 到 分隔符 + 两端空格
+    assert f(["2026-09-01 至 2026-09-02"]) == ["2026-09-01", "2026-09-02"]
+    assert f(["09-01 到 09-02"], today="2026-07-01") == ["2026-09-01", "2026-09-02"]
+    # 与单日混用:展开后按输入顺序去重保序
+    assert f(["2026-09-03", "2026-09-01~2026-09-02"]) == [
+        "2026-09-03", "2026-09-01", "2026-09-02"]
+    assert f(["2026-09-01~2026-09-02", "2026-09-02"]) == ["2026-09-01", "2026-09-02"]
+    # 非法:结束早于开始 / 端点缺失 / 三段 / 超上限 / 不存在日期
+    for bad in (["2026-09-03~2026-09-01"], ["2026-09-01~"], ["~2026-09-01"],
+                ["2026-09-01~2026-09-02~2026-09-03"], ["2026-01-01~2026-12-31"],
+                ["2026-02-30~2026-03-01"], ["2026-09-30~02"]):
+        try:
+            f(bad)
+            raise AssertionError(f"应拒绝非法区间: {bad!r}")
+        except ValueError:
+            pass
+
+
 def test_parse_daily_dates_contract():
     f = main_mod._parse_daily_dates
     # None -> 今天

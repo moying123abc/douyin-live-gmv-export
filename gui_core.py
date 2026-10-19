@@ -63,22 +63,23 @@ def check_date(text: str, field: str = "日期") -> str:
 
 
 def check_dates(text: str, field: str = "日期") -> List[str]:
-    """把界面上的一行日期拆成规范化列表(空格 / 逗号 / 顿号 / 分号分隔;去重保序)。
+    """把界面上的一行日期拆成规范化列表(空格 / 逗号 / 顿号 / 分号分隔;支持区间;去重保序)。
 
+    多天也可以写成区间:`09-01~09-05`、`2026-09-01..2026-09-05`、`2026-09-01至05`
+    (含两端;分隔符 ~ / .. / 至 / 到 均可)——与命令行共用同一份实现
+    (extractor.sessions.expand_date_input),界面与 CLI 不会打架。
     空字符串 -> [] ,表示不带 --date,由命令行取默认值(今天,东八区)。
     """
-    raw = text or ""
-    for sep in ("，", "、", ";", "；", "|"):
-        raw = raw.replace(sep, ",")
-    out: List[str] = []
-    for part in re.split(r"[,\s]+", raw):
-        part = part.strip()
-        if not part:
-            continue
-        day = check_date(part, field)
-        if day not in out:
-            out.append(day)
-    return out
+    raw = (text or "").strip()
+    if not raw:
+        return []
+    try:
+        return S.expand_date_input(raw)
+    except ValueError as exc:
+        raise FormError(
+            "%s:%s(可写 2026-09-04 或省略年份的 09-04;多天用空格/逗号分隔,"
+            "也可用区间如 09-01~09-05)" % (field, exc)
+        ) from None
 
 
 # ---------------- 账号(多账号切换) ----------------
@@ -216,7 +217,7 @@ def build_stats_args(date: Optional[str] = None, *, auto: bool = False, out: Opt
 def build_daily_args(date: Optional[str] = None, *, no_open: bool = False,
                      no_capture_watch: bool = False, account: Optional[str] = None,
                      config: Optional[str] = None) -> List[str]:
-    """daily:一键日报(导出 + 两列表日报文件夹),日期可一次给多个(空格/逗号分隔)。"""
+    """daily:一键日报(导出 + 两列表日报文件夹),日期可一次给多个(空格/逗号分隔,或区间 09-01~09-05)。"""
     days = check_dates(date or "", "日期")
     args = ["daily"]
     if days:

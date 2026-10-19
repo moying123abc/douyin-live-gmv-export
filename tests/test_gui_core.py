@@ -63,6 +63,26 @@ def test_check_dates_multi():
     assert _raises_form_error(C.check_dates, "09-01 09/02")
 
 
+def test_check_dates_range():
+    """区间写法:两端都省略年份 / 结束端只写日 / .. 与 至 / 两侧空格;与 CLI 同一份实现。"""
+    assert C.check_dates(f"09-01~09-03") == [
+        f"{YEAR}-09-01", f"{YEAR}-09-02", f"{YEAR}-09-03"]
+    assert C.check_dates("2026-09-01..2026-09-03") == [
+        "2026-09-01", "2026-09-02", "2026-09-03"]
+    assert C.check_dates("2026-09-01 至 2026-09-02") == ["2026-09-01", "2026-09-02"]
+    assert C.check_dates("2026-09-01~03") == ["2026-09-01", "2026-09-02", "2026-09-03"]
+    assert C.check_dates("09-01 ~ 09-02") == [f"{YEAR}-09-01", f"{YEAR}-09-02"]
+    # 与单日混用、区间重叠去重
+    assert C.check_dates("09-03 09-01~09-02") == [
+        f"{YEAR}-09-03", f"{YEAR}-09-01", f"{YEAR}-09-02"]
+    assert C.check_dates("2026-09-01~2026-09-02 2026-09-02") == [
+        "2026-09-01", "2026-09-02"]
+    # 非法区间
+    for bad in ("09-03~09-01", "2026-09-01~", "~09-01", "09-01~09-02~09-03",
+                "2026-01-01~2026-12-31"):
+        assert _raises_form_error(C.check_dates, bad), bad
+
+
 def test_today_and_shift_day():
     """今天/昨天按钮用的换算:跨月、跨年、闰年都对。"""
     import re
@@ -102,6 +122,11 @@ def test_build_export_stats_daily():
     assert C.build_daily_args("09-04") == ["daily", "--date", day]
     assert C.build_daily_args("09-01 09-02", no_open=True, no_capture_watch=True) == [
         "daily", "--date", f"{YEAR}-09-01", f"{YEAR}-09-02", "--no-open", "--no-capture-watch"]
+    # 区间 → 展开成逐日参数(命令行走的是同一套 --date 多值)
+    assert C.build_daily_args("09-01~09-03") == [
+        "daily", "--date", f"{YEAR}-09-01", f"{YEAR}-09-02", f"{YEAR}-09-03"]
+    assert C.build_daily_args("2026-09-01~03") == [
+        "daily", "--date", "2026-09-01", "2026-09-02", "2026-09-03"]
     assert C.build_daily_args("", account="spa2", config="my.yaml") == [
         "daily", "--config", "my.yaml", "--account", "spa2"]
     assert C.build_probe_args("123", dry_run=True, layer="L0") == [
@@ -114,6 +139,7 @@ def test_builders_reject_impossible_input():
     assert _raises_form_error(C.build_sessions_args, "09-01 09-02")
     assert _raises_form_error(C.build_stats_args, "09-01 09-02")
     assert _raises_form_error(C.build_export_args, "09-01 09-02")
+    assert _raises_form_error(C.build_export_args, "09-01~09-03")  # 区间只能给 daily
     assert _raises_form_error(C.build_daily_args, "09-04", account="a/b")
     assert _raises_form_error(C.build_login_args, "a b")
     assert _raises_form_error(C.build_trim_args, "")

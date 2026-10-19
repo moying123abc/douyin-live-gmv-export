@@ -135,7 +135,9 @@ class App:
         box = ttk.LabelFrame(tab, text="1. 要出日报的日期")
         box.pack(fill="x", padx=10, pady=4)
         self.daily_date = tk.StringVar(value=C.today_bj())
-        self._date_row(box, self.daily_date, "(2026-09-04 或省略年份的 09-04;多天:09-01 09-02 或 09-01,09-02)")
+        self._date_row(box, self.daily_date,
+                       "(2026-09-04 或省略年份的 09-04;多天:09-01 09-02 或 09-01,09-02;"
+                       "整段:09-01~09-05 或 2026-09-01~09-05)")
 
         box2 = ttk.LabelFrame(tab, text="2. 选项")
         box2.pack(fill="x", padx=10, pady=4)

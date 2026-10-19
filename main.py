@@ -142,7 +142,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_daily.add_argument("--date", default=None, action="append", nargs="+", metavar="DATE",
                          help=_HINT_DATE + "(默认今天,东八区);支持一次传多个日期:"
                               "空格分隔(--date 2026-09-01 2026-09-02)、逗号分隔"
-                              "(--date 2026-09-01,2026-09-02)或重复传入(--date 2026-09-01 --date 2026-09-02);"
+                              "(--date 2026-09-01,2026-09-02)、重复传入"
+                              "(--date 2026-09-01 --date 2026-09-02),或直接给区间"
+                              "(--date 2026-09-01~2026-09-05,含两端;分隔符也支持 .. / 至 / 到);"
                               "每个日期各生成一个 日报_<YYYYMMDD> 文件夹,单日失败不影响其他日")
     p_daily.add_argument("--no-open", action="store_true",
                          help="生成后不自动打开结果文件夹(默认在 Windows 下自动打开)")
@@ -436,38 +438,44 @@ def _parse_daily_dates(raw, *, today: str | None = None) -> list:
       --date 2026-09-01 2026-09-02          空格分隔多日
       --date 2026-09-01,2026-09-02          逗号分隔(兼容中文逗号/分号)
       --date 2026-09-01 --date 2026-09-02   重复传参
+      --date 2026-09-01~2026-09-05          日期区间(含两端,一次出多天)
+      --date 09-01..09-05                   区间两端省略年份 → 取 today 所在年
+      --date 2026-09-01~05                  结束端只写日 → 沿用起点年月
 
     单个日期支持两种格式(可用 - 或 . 分割):
       2026-09-01   完整日期
       09-01        省略年份 → 年份取 today(默认今天)所在年
 
     未提供 --date 时返回 [今天(本地日期)]。
-    任一日期非法 → ValueError:整批拒绝并给出用法提示,不做"半截工作"。
+    任一日期/区间非法 → ValueError:整批拒绝并给出用法提示,不做"半截工作"。
     """
+    from extractor.sessions import expand_date_input
+
+    base_today = today or _dt.date.today().isoformat()
     if not raw:
-        return [today or _dt.date.today().isoformat()]
+        return [base_today]
     items = raw if isinstance(raw, (list, tuple)) else [raw]
-    tokens: list = []
+    pieces: list = []
     for item in items:
         for value in (item if isinstance(item, (list, tuple)) else [item]):
-            tokens.extend(p for p in re.split(r"[,，;；\s]+", str(value or "")) if p)
-    if not tokens:
+            if str(value or "").strip():
+                pieces.append(str(value))
+    if not pieces:
         raise ValueError("未解析到任何日期。用法: --date 2026-09-01 [2026-09-02 ...]")
-    base_today = today or _dt.date.today().isoformat()
-    ordered: list = []
-    for token in tokens:
-        try:
-            day = _normalize_date_token(token, today=base_today)
-        except ValueError:
-            raise ValueError(
-                "日期格式应为 YYYY-MM-DD,或省略年份的 MM-DD(支持 - 或 . 分割,"
-                "如 2026-09-01 / 09-01,省略年份时取当前年份): "
-                f"{token!r}"
-                "(多个日期可用空格或逗号分隔,例如 --date 2026-09-01 2026-09-02)"
-            ) from None
-        if day not in ordered:
-            ordered.append(day)
-    return ordered
+    try:
+        dates = expand_date_input(" ".join(pieces), today=base_today)
+    except ValueError as exc:
+        raise ValueError(
+            f"{exc}。日期应为 YYYY-MM-DD 或省略年份的 MM-DD(可用 - 或 . 分割);"
+            "多个日期可用空格或逗号分隔(如 --date 2026-09-01 2026-09-02);"
+            "区间写法如 --date 2026-09-01~2026-09-05(分隔符也支持 .. / 至 / 到)"
+        ) from None
+    if not dates:
+        raise ValueError(
+            "未解析到任何日期。用法: --date 2026-09-01 [2026-09-02 ...] "
+            "或区间 --date 2026-09-01~2026-09-05"
+        )
+    return dates
 
 
 def cmd_daily(args) -> int:
@@ -498,8 +506,9 @@ def cmd_daily(args) -> int:
     want_capture = not bool(getattr(args, "no_capture_watch", False))
     multi = len(dates) > 1
     if multi:
-        joined = ", ".join(dates)
-        print(f"[daily] 共 {len(dates)} 个日期: {joined}(逐日独立生成,单日失败不影响其他日)")
+        # 区间可能一次几十天,列表只预览前 3 个,避免刷屏
+        preview = ", ".join(dates[:3]) + (f" … {dates[-1]}" if len(dates) > 3 else "")
+        print(f"[daily] 共 {len(dates)} 个日期: {preview}(逐日独立生成,单日失败不影响其他日)")
 
     results: list = []
     for idx, date_str in enumerate(dates, 1):

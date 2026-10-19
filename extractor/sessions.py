@@ -95,6 +95,80 @@ def parse_date(date_str: str, *, today=None) -> _dt.date:
     return _dt.date.fromisoformat(normalize_date_str(date_str, today=today))
 
 
+# ---------------------------------------------------------------------------
+# 日期区间(一键日报一次出多天):a..b / a~b / a至b,两端都可省略年份
+# ---------------------------------------------------------------------------
+_RANGE_SEP_RE = re.compile(r"\.\.|~|～|至|到")
+# 单次区间上限:每个日期都要真实拉一次页面,防止手滑写成"整年"跑几个小时
+RANGE_MAX_DAYS = 62
+
+
+def _expand_endpoint(end_token: str, start_day: _dt.date, *, today=None) -> _dt.date:
+    """区间右端点:支持 09-05 / 2026.09.05,也支持只写日(05)→ 沿用起点的年月。"""
+    m = re.fullmatch(r"(\d{1,2})", end_token)
+    if m:
+        day = int(m.group(1))
+        _check_calendar(start_day.year, start_day.month, day, end_token)
+        return _dt.date(start_day.year, start_day.month, day)
+    return parse_date(end_token, today=today)
+
+
+def expand_date_token(token: str, *, today=None) -> List[str]:
+    """单段输入 → 有序日期列表;单日返回 [该日],区间返回两端之间的每一天(含两端)。
+
+    区间非法(端点缺失/结束早于开始/超过 RANGE_MAX_DAYS 天)→ ValueError。
+    """
+    text = str(token).strip()
+    if not text:
+        raise ValueError("日期不能为空")
+    if not _RANGE_SEP_RE.search(text):
+        return [normalize_date_str(text, today=today)]
+    parts = [p.strip() for p in _RANGE_SEP_RE.split(text)]
+    if len(parts) != 2 or not all(parts):
+        raise ValueError(
+            f"日期区间只能写两个端点(如 2026-09-01~2026-09-05),得到 {token!r}"
+        )
+    start = parse_date(parts[0], today=today)
+    end = _expand_endpoint(parts[1], start, today=today)
+    if end < start:
+        raise ValueError(
+            f"日期区间的结束日早于开始日: {start.isoformat()} > {end.isoformat()}"
+            "(结束端只写日时须与开始日同月;跨月请写成 10-02,跨年请两端都写完整年份)"
+        )
+    span = (end - start).days + 1
+    if span > RANGE_MAX_DAYS:
+        raise ValueError(
+            f"日期区间含 {span} 天,超过单次上限 {RANGE_MAX_DAYS} 天: {text!r}"
+            "(请分批运行——每个日期都会真实联网导出一次)"
+        )
+    return [(start + _dt.timedelta(days=i)).isoformat() for i in range(span)]
+
+
+def expand_date_input(text: str, *, today=None) -> List[str]:
+    """把一行日期输入展开成有序去重的 YYYY-MM-DD 列表。
+
+    分隔用空格 / 英文逗号 / 中文逗号 / 顿号 / 分号,可与区间混用:
+      "2026-09-01 2026-09-02"
+      "09-01,09-02"
+      "2026-09-01~2026-09-03"
+      "09-01~09-03" / "2026-09-01 ~ 03"(区间符号两侧空格容忍)
+    单个日期非法 / 区间非法 → ValueError(整批拒绝,不做半截工作)。
+    """
+    raw = str(text or "")
+    # 先吃掉区间符号两侧空白,否则 "09-01 ~ 09-05" 会被空格切成两个日期
+    raw = re.sub(r"\s*(?:\.\.|~|～|至|到)\s*", "~", raw)
+    for sep in ("，", "、", ";", "；", "|"):
+        raw = raw.replace(sep, ",")
+    out: List[str] = []
+    for part in re.split(r"[,\s]+", raw):
+        if not part:
+            continue
+        for day in expand_date_token(part, today=today):
+            if day not in out:
+                out.append(day)
+    return out
+
+
 def day_range_epochs(date_str: str) -> tuple:
     """返回东八区当日 [00:00:00, 23:59:59] 的 epoch 秒窗口 (start, end)。"""
     day = parse_date(date_str)
