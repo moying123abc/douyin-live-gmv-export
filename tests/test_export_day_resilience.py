@@ -42,7 +42,7 @@ def test_export_day_skips_bad_and_continues():
         tmp = pathlib.Path(td)
         cfg = {"export": {"out_dir": str(tmp)}, "validation": {}}
 
-        def fake_read_live(cfg_, room):
+        def fake_read_live(cfg_, room, **kwargs):  # on_page 等附加参数用不到
             if room == BAD_SESSION["room_id"]:
                 raise trend.TrendUnavailable("L0/L1 均未命中整场序列(测试夹具)")
             return OK_ROWS, OK_META
@@ -61,6 +61,13 @@ def test_export_day_skips_bad_and_continues():
         bad_file = tmp / "live_20260902_bad_room_1min.csv"
         assert ok_file.is_file(), "主场应被成功导出"
         assert not bad_file.exists(), "被跳过场次不应产出文件"
+        # 数据归属:成功场次写进 _account_index.json(日报据此标注账号);跳过场次不记
+        import json
+        idx = json.loads((tmp / "_account_index.json").read_text(encoding="utf-8"))
+        day = idx["days"]["2026-09-02"]
+        assert "ok_room_main" in day
+        assert "bad_room_1min" not in day
+        assert day["ok_room_main"]["account"] == "default"
 
 
 def test_export_day_all_failed_returns_2():
@@ -68,7 +75,7 @@ def test_export_day_all_failed_returns_2():
         tmp = pathlib.Path(td)
         cfg = {"export": {"out_dir": str(tmp)}, "validation": {}}
 
-        def fake_read_live(cfg_, room):
+        def fake_read_live(cfg_, room, **kwargs):
             raise trend.TrendUnavailable("无数据(测试夹具)")
 
         with mock.patch.object(sessions_mod, "fetch_day_sessions",

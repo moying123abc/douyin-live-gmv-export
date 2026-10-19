@@ -20,6 +20,8 @@ CANONICAL_RE = re.compile(r"^live_(\d{8})_.+\.csv$")
 SUMMARY_HEADER = [
     "session_date", "room_id", "start", "end",
     "total_minutes", "deal_minutes", "gmv_sum",
+    # 导出该场数据的账号:"--account 名(页面账号名)";早于本功能导出的老数据留空
+    "account",
 ]
 TOTAL_LABEL = "合计"
 
@@ -105,11 +107,12 @@ def write_summary_csv(path, summary: Dict) -> pathlib.Path:
             writer.writerow([
                 s["session_date"], s["room_id"], s["start"], s["end"],
                 s["total_minutes"], s["deal_minutes"], s["gmv_sum"],
+                s.get("account", ""),
             ])
         t = summary["totals"]
         writer.writerow([
             TOTAL_LABEL, "", "", "",
-            t["total_minutes"], t["deal_minutes"], t["gmv_sum"],
+            t["total_minutes"], t["deal_minutes"], t["gmv_sum"], "",
         ])
     return out
 
@@ -128,11 +131,34 @@ def compact_files(out_dir: pathlib.Path, date_str: str) -> List[pathlib.Path]:
     return sorted(out_dir.glob(f"live_{ymd}_*_compact.csv"))
 
 
+def room_of_file(path) -> str:
+    """从 live_<YYYYMMDD>_<room_id>[_compact|_watch_min].csv 还原 room_id。"""
+    stem = pathlib.Path(path).stem
+    for suffix in ("_watch_min", "_compact"):
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    parts = stem.split("_")
+    return "_".join(parts[2:]) if len(parts) > 2 else stem
+
+
+def _account_cell(info) -> str:
+    """归属记录 → 表格单元:"1(方寸自在SPA)" / "1" / ""(无记录)。"""
+    if not isinstance(info, dict):
+        return ""
+    acc = str(info.get("account") or "").strip()
+    if not acc:
+        return ""
+    nick = str(info.get("nickname") or "").strip()
+    return f"{acc}({nick})" if nick else acc
+
+
 def publish_day(out_dir: pathlib.Path, date_str: str,
                 compact_files_: Sequence[pathlib.Path],
                 canonical_files: Sequence[pathlib.Path],
                 *,
-                gpm_by_room: Dict[str, Dict[str, object]] | None = None) -> pathlib.Path:
+                gpm_by_room: Dict[str, Dict[str, object]] | None = None,
+                account_by_room: Dict[str, Dict[str, object]] | None = None) -> pathlib.Path:
     """把某日的导出结果整理成"日报文件夹"并返回其路径。
 
     规则(用户需求:一键运行后拿到的就是两列表):
@@ -142,7 +168,10 @@ def publish_day(out_dir: pathlib.Path, date_str: str,
         若提供 gpm_by_room(room → {HH:MM: 小时GPM 或 None}),则成交点扩为三列
         time/gmv_min/gpm:gpm=该行分钟所属"小时"的小时 GPM(该小时各成交分钟行同值);
         无观看档的场次不在映射内 → gpm 列留空,并生成 成交点_gpm_说明.txt 说明;
-      - 写入 `日报汇总_<YYYYMMDD>.csv`(场次级统计 + 合计行)。
+      - 写入 `日报汇总_<YYYYMMDD>.csv`(场次级统计 + 合计行 + 导出账号列);
+      - account_by_room(room → {account, nickname, exported_at…},来自
+        accounts.export_accounts_for_day)不为 None 时,额外写 账号说明.txt,
+        标注每场由哪个账号导出;混了多个账号时显式警告(防止切账号后拿错数据)。
     精简表缺失或表头不符的场次会被跳过并在汇总中说明;不做在线请求。
     """
     folder = out_dir / f"日报_{date_str.replace('-', '')}"
@@ -151,8 +180,7 @@ def publish_day(out_dir: pathlib.Path, date_str: str,
     no_watch_rooms = []
     for cf in compact_files_:
         # live_YYYYMMDD_<room_id>_compact → room_id(room_id 本身不含下划线)
-        tokens = cf.stem.split("_")
-        room = "_".join(tokens[2:-1]) if len(tokens) >= 4 else cf.stem
+        room = room_of_file(cf)
         dest = folder / f"成交点_{room}.csv"
         if gpm_by_room is not None and room not in gpm_by_room:
             no_watch_rooms.append(room)
@@ -172,6 +200,8 @@ def publish_day(out_dir: pathlib.Path, date_str: str,
         except ValueError as exc:
             skipped.append(f"{cfile.name}: {exc}")
             continue
+        room = room_of_file(cfile)
+        s["account"] = _account_cell((account_by_room or {}).get(room))
         summary["stats"].append(s)
         summary["totals"]["total_minutes"] += s["total_minutes"]
         summary["totals"]["deal_minutes"] += s["deal_minutes"]
@@ -183,6 +213,11 @@ def publish_day(out_dir: pathlib.Path, date_str: str,
         for item in skipped:
             print(f"  - {item}")
     write_summary_csv(folder / f"日报汇总_{date_str.replace('-', '')}.csv", summary)
+    if account_by_room is not None:
+        names = _write_account_note(folder, date_str, canonical_files, account_by_room)
+        if len(names) > 1:
+            print(f"[publish] 注意:本日报混合了 {len(names)} 个账号的数据: "
+                  + ", ".join(names) + " (明细见 账号说明.txt)")
     return folder
 
 
@@ -228,3 +263,47 @@ def _write_deal_note(folder: pathlib.Path, no_watch_rooms: Sequence[str]) -> Non
         lines.append("- 无观看档场次(本表 gpm 列留空): " + ", ".join(no_watch_rooms))
         lines.append("  如需 gpm 列,请对相应场次执行观看捕获(自动优先,见 README 小时级 GPM 章节)。")
     (folder / "成交点_gpm_说明.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_account_note(folder: pathlib.Path, date_str: str,
+                        canonical_files: Sequence[pathlib.Path],
+                        account_by_room: Dict[str, Dict[str, object]]) -> List[str]:
+    """写 账号说明.txt(每场由哪个账号导出);返回出现过的账号名(排序,供调用方告警)。"""
+    lines = [
+        f"本日报({date_str})的导出账号归属",
+        "- 账号 = 导出时用的 --account(或 config.yaml 的 browser.account);"
+        "括号内是巨量百应页面右上角的账号名(nickname)。",
+        "- 同一场重复导出时这里记录最近一次,并给出首次归属时间;日报只读本地,不再联网核对。",
+        "",
+    ]
+    seen: Dict[str, dict] = {}
+    unknown: List[str] = []
+    for cfile in canonical_files:
+        room = room_of_file(cfile)
+        info = account_by_room.get(room) or {}
+        if not str(info.get("account") or "").strip():
+            unknown.append(room)
+            continue
+        seen.setdefault(str(info["account"]), info)
+        when = str(info.get("exported_at") or "").strip()
+        first = str(info.get("first_at") or "").strip()
+        tail = f"  导出时间: {when}" if when else ""
+        if first and when and first != when:
+            tail += f"(首次归属: {first})"
+        lines.append(f"- room_id={room}  账号: {_account_cell(info)}{tail}")
+    if unknown:
+        lines += ["", "以下场次没有导出账号记录(早于本功能导出,或索引文件被删),无法核对归属:"]
+        lines += [f"- room_id={room}  账号: 未知" for room in unknown]
+    names = sorted(seen)
+    if len(names) > 1:
+        lines += [
+            "",
+            f"!! 注意:本日报混合了 {len(names)} 个账号的数据("
+            + "、".join(_account_cell(v) for v in (seen[n] for n in names)) + ")。",
+            "   不同店铺/账号的 GVM 不要相加或互相对比;若本应是一个账号,"
+            "说明中途切过账号,请按 room_id 重新导出需要的那几场。",
+        ]
+    elif len(names) == 1:
+        lines += ["", f"有记录的场次均由同一个账号导出: {_account_cell(seen[names[0]])}"]
+    (folder / "账号说明.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return names

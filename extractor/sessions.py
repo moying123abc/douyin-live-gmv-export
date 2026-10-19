@@ -178,9 +178,11 @@ def _guidance_text(date_str: str) -> str:
     )
 
 
-def fetch_day_sessions(cfg: dict, date_str: str) -> List[Dict[str, Any]]:
+def fetch_day_sessions(cfg: dict, date_str: str, *, on_page=None) -> List[Dict[str, Any]]:
     """在线拉取指定日期的已结束场次清单(浏览器已登录同源 fetch)。
 
+    on_page:可选的回调(page),在页面打开且已登录、开始取数之前调用一次
+    (用于读页面右上角的账号名等);回调抛任何异常都会被吞掉,绝不影响拉场次。
     失败抛 DaySessionsUnavailable(含人工引导),绝不伪造。
     """
     day = parse_date(date_str)
@@ -205,6 +207,11 @@ def fetch_day_sessions(cfg: dict, date_str: str) -> List[Dict[str, Any]]:
                 f"打开 eos 页面失败(网络/权限): {exc}\n{_guidance_text(day_str)}"
             ) from exc
         page.wait_for_timeout(2000)
+        if on_page is not None:
+            try:
+                on_page(page)
+            except Exception:  # noqa: BLE001 — 附加信息读取失败不影响主流程
+                pass
         payload = page.evaluate(
             """async (u) => {
                 const r = await fetch(u, {credentials: 'include'});

@@ -134,6 +134,23 @@ def record_login(cfg: dict, page) -> str:
     return nick
 
 
+def sync_account_nickname(cfg: dict, page) -> str:
+    """在读数据的页面上顺手刷新"页面账号名"(登录登记里的 nickname);读不到返回空串。
+
+    为什么要做:--account 只是本地登录 profile 的名字,用户切账号后真正代表
+    数据归属的是百应页面右上角的账号名。导出时路过页面就更新一次登记,
+    日报因此能写出"1(方寸自在SPA)"这样的归属。失败绝不影响导出。
+    """
+    nick = read_account_nickname(page)
+    if not nick:
+        return ""
+    try:
+        acctmod.update_account_nickname(cfg, account_name(cfg), nick)
+    except Exception:  # noqa: BLE001 — 只影响展示
+        pass
+    return nick
+
+
 def _headless_from(cfg: dict, headful_override: bool | None = None) -> bool:
     if headful_override is not None:
         return not headful_override

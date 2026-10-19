@@ -395,8 +395,12 @@ _L0_FULL_JS = r"""
 """
 
 
-def read_live(cfg: dict, room_id: str) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+def read_live(cfg: dict, room_id: str, *,
+              on_page=None) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """在线整场读取(L0→L1;与 probe.py 同源)。
+
+    on_page:可选回调(page),在回放页打开且已登录之后调用一次(用于读页面账号名等);
+    回调异常一并吞掉,绝不影响取数。
 
     真机验证(2026-09-04,抖音生活服务/本地直播专业版回放页 room_id=7000000000000000002):
     L1 命中 room_minute_indicator 行对象序列 key=pay_order_gmv_minute_trend
@@ -436,6 +440,11 @@ def read_live(cfg: dict, room_id: str) -> Tuple[List[Dict[str, Any]], Dict[str, 
             page.wait_for_timeout(5000)
         page.mouse.wheel(0, 800)
         page.wait_for_timeout(3000)
+        if on_page is not None:
+            try:
+                on_page(page)
+            except Exception:  # noqa: BLE001 — 附加信息读取失败不影响取数
+                pass
         recorder.read_bodies()
 
         # L0: 页面图表数据数组(整场)

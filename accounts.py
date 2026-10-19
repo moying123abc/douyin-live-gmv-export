@@ -185,3 +185,151 @@ def display_path(p: pathlib.Path) -> str:
         return str(pathlib.Path(p).resolve().relative_to(cfgmod.PROJECT_ROOT))
     except Exception:
         return str(p)
+
+
+# ---------------------------------------------------------------------------
+# 账号展示名 / 账归属记录(日报用:"这批数据是哪个账号导出的")
+# ---------------------------------------------------------------------------
+# 账号名(--account)只说明"用的哪个登录 profile",真正的店铺账号要读页面上
+# 右上角的账号名(nickname,登录时已登记)。二者合起来写成 "1(方寸自在SPA)",
+# 才能在切换账号后一眼核对导出的是哪个账号。
+def account_label(account, nickname=None) -> str:
+    """账号展示名:有页面账号名 → "1(方寸自在SPA)",否则就是账号名。"""
+    acc = str(account or DEFAULT_ACCOUNT).strip() or DEFAULT_ACCOUNT
+    nick = str(nickname or "").strip()
+    return f"{acc}({nick})" if nick else acc
+
+
+def current_account_name(cfg: dict) -> str:
+    """cfg 上当前生效的账号名(accounts.apply_account 写入的那份;缺省 = 默认账号)。"""
+    raw = str((cfg.get("browser", {}) or {}).get("account") or "").strip()
+    try:
+        return normalize_account_name(raw)
+    except AccountError:
+        return DEFAULT_ACCOUNT
+
+
+def account_identity(cfg: dict, name=None) -> dict:
+    """当前账号的身份:{"account", "nickname", "label"}(nickname 读账号登记,无则空)。"""
+    if name is not None and str(name).strip():
+        acc = normalize_account_name(name)
+    else:
+        acc = current_account_name(cfg)
+    nick = str(read_account_meta(cfg, acc).get("nickname") or "").strip()
+    return {"account": acc, "nickname": nick, "label": account_label(acc, nick)}
+
+
+def update_account_nickname(cfg: dict, name=None, nickname: str = "") -> pathlib.Path | None:
+    """只更新"页面账号名"(不改 logged_in_at,不伪造一次登录);失败返回 None。"""
+    nick = str(nickname or "").strip()
+    if not nick:
+        return None
+    try:
+        acc = normalize_account_name(name)
+        prof, meta_path = account_paths(cfg, acc)
+        meta = read_account_meta(cfg, acc)
+        meta.update({
+            "tool": "douyin-live-gmv-export",
+            "account": acc,
+            "profile_dir": str(prof),
+            "nickname": nick,
+            "nickname_at": _dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
+        })
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
+                             encoding="utf-8")
+        return meta_path
+    except Exception:  # noqa: BLE001 — 只影响展示,绝不影响导出
+        return None
+
+
+# 导出归属索引:放在导出目录下(data/outputs/_account_index.json,已被 .gitignore 忽略),
+# 结构 {"version": 1, "updated_at": "...", "days": {"2026-09-04": {"<room_id>": {
+#   "account": "1", "nickname": "方寸自在SPA", "exported_at": "...", "first_at": "..."}}}}。
+# 日报生成时据此在汇总表写 account 列、并写一份 账号说明.txt。
+ACCOUNT_INDEX_NAME = "_account_index.json"
+ACCOUNT_INDEX_VERSION = 1
+MAX_INDEX_DAYS = 800  # 只保留最近这么多天,防止索引无限增长
+
+
+def account_index_path(out_dir) -> pathlib.Path:
+    """导出归属索引文件的路径(不创建目录)。"""
+    return pathlib.Path(out_dir) / ACCOUNT_INDEX_NAME
+
+
+def _norm_day(date_str) -> str:
+    """把 2026-09-04 / 2026.09.04 / 20260904 归一为 YYYY-MM-DD;认不出就原样返回。"""
+    raw = str(date_str or "").strip().replace(".", "-")
+    m = re.fullmatch(r"(\d{4})-?(\d{2})-?(\d{2})", raw)
+    return f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else raw
+
+
+def _read_index_file(path: pathlib.Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — 索引损坏视为没有记录(日报会标"未知")
+        return {}
+    days = data.get("days") if isinstance(data, dict) else None
+    return days if isinstance(days, dict) else {}
+
+
+def load_account_index(out_dir) -> dict:
+    """读导出归属索引 → {YYYY-MM-DD: {room_id: {...}}};不存在/损坏 → {}。"""
+    path = account_index_path(out_dir)
+    if not path.is_file():
+        return {}
+    return _read_index_file(path)
+
+
+def record_export_account(out_dir, date_str: str, room_id, *, account: str,
+                          nickname: str = "", exported_at=None) -> pathlib.Path | None:
+    """登记"某天某场由哪个账号导出"(导出成功后调用;原子写,失败返回 None 不抛)。
+
+    重复导出同一场时覆盖为最新一次,但保留首次归属时间 first_at(便于核对是否中途换过账号)。
+    """
+    day = _norm_day(date_str)
+    room = str(room_id or "").strip()
+    if not day or not room:
+        return None
+    path = account_index_path(out_dir)
+    days = _read_index_file(path)
+    day_map = days.get(day) if isinstance(days.get(day), dict) else {}
+    stamp = str(exported_at or _dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
+    entry = {
+        "account": str(account or DEFAULT_ACCOUNT),
+        "nickname": str(nickname or "").strip(),
+        "exported_at": stamp,
+    }
+    prev = day_map.get(room)
+    entry["first_at"] = str(prev.get("first_at") or prev.get("exported_at") or stamp) \
+        if isinstance(prev, dict) else stamp
+    day_map[room] = entry
+    days[day] = day_map
+    if len(days) > MAX_INDEX_DAYS:
+        for old in sorted(days)[:-MAX_INDEX_DAYS]:
+            days.pop(old, None)
+    payload = {"version": ACCOUNT_INDEX_VERSION, "days": days, "updated_at": stamp}
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n",
+                       encoding="utf-8")
+        tmp.replace(path)  # 原子替换(Windows 上同样覆盖成功)
+        return path
+    except Exception:  # noqa: BLE001 — 记录失败不影响导出
+        return None
+
+
+def export_accounts_for_day(out_dir, date_str) -> dict:
+    """某天的"room_id → 归属记录"(没有记录 → {})。"""
+    day = _norm_day(date_str)
+    rows = load_account_index(out_dir).get(day)
+    if not isinstance(rows, dict):
+        return {}
+    return {str(k): v for k, v in rows.items() if isinstance(v, dict)}
+
+
+def distinct_accounts(by_room: dict) -> list:
+    """归属记录里出现过的账号名(去重排序;空值忽略)。"""
+    names = {str((v or {}).get("account") or "").strip() for v in (by_room or {}).values()}
+    return sorted(n for n in names if n)

@@ -304,6 +304,7 @@ def _daily_one_date(cfg: dict, date_str: str, out_dir: pathlib.Path, *,
     """
     import csv as _csv
 
+    import accounts as acctmod
     import config as cfgmod
     from extractor import daily_stats
     from exporter import to_csv_excel
@@ -315,6 +316,10 @@ def _daily_one_date(cfg: dict, date_str: str, out_dir: pathlib.Path, *,
         return 2, None
     if not out_dir.is_absolute():
         out_dir = cfgmod.PROJECT_ROOT / out_dir
+
+    ident = acctmod.account_identity(cfg)
+    print(f"[daily] 导出账号: {ident['label']}"
+          "  (--account 名 + 页面账号名,用于核对这批数据是谁导出的)")
 
     skipped_info: list = []
     files = daily_stats.day_files(out_dir, date_str)
@@ -376,9 +381,18 @@ def _daily_one_date(cfg: dict, date_str: str, out_dir: pathlib.Path, *,
         except Exception as exc:  # noqa: BLE001 — 单场映射失败不阻断整日
             print(f"[daily] 场次 {room} 小时 GPM 映射失败(该场 gpm 列留空): {exc}", file=sys.stderr)
 
+    # 数据归属:导出成功时记在 _account_index.json 里;日报据此标注"哪场是谁导出的",
+    # 切换账号后一眼就能看出日报里有没有混进别的账号(空 dict 也要传,让老数据写"未知")。
+    by_room = acctmod.export_accounts_for_day(out_dir, date_str)
+    others = [a for a in acctmod.distinct_accounts(by_room) if a != ident["account"]]
+    if others:
+        print(f"[daily] 注意: {date_str} 的已导出数据里有其他账号导出的场次("
+              + "、".join(others) + ");日报按实际归属标注,明细见 账号说明.txt")
+
     comp_files = daily_stats.compact_files(out_dir, date_str)
     folder = daily_stats.publish_day(out_dir, date_str, comp_files, files,
-                                     gpm_by_room=(enrich or None))
+                                     gpm_by_room=(enrich or None),
+                                     account_by_room=by_room)
     if skipped_info:
         note_path = folder / "_跳过说明.txt"
         with note_path.open("w", encoding="utf-8") as fh:
@@ -390,7 +404,9 @@ def _daily_one_date(cfg: dict, date_str: str, out_dir: pathlib.Path, *,
     print(f"[daily] 日报已生成: {folder}")
     print("[daily]   每场: 成交点_<room_id>.csv(time 只含 HH:MM;只保留 gmv>0 行;"
           "有观看档时含 gpm 列=所属小时 GPM,无则 gpm 留空并在 成交点_gpm_说明.txt 说明)")
-    print(f"[daily]   汇总: 日报汇总_{date_str.replace('-', '')}.csv(场次级统计+合计)")
+    print(f"[daily]   汇总: 日报汇总_{date_str.replace('-', '')}.csv"
+          "(场次级统计+合计+account 导出账号列)")
+    print("[daily]   账号归属: 账号说明.txt(每场由哪个账号导出;混账号会显式警告)")
 
     # 小时 GPM 表(跨同日多场按小时叠加;观看档在上一段已补捕获/复用)
     hres = hgo.publish_day_hourly(out_dir, date_str, folder)
@@ -611,14 +627,28 @@ def _export_day(cfg: dict, day: _dt.date, *, excel: bool = False,
     total}。退出码:0 = 至少成功一场;2 = 当天一场都没导出成功(或场次查询失败,
     此时 info 含 error)。调用方(export --date / stats --auto / daily)据此处理。
     """
+    import accounts as acctmod
+    import auth as auth_mod
     import config as cfgmod
     from extractor import sessions as sessions_mod
     from extractor import trend
 
     date_str = day.isoformat()
     info: dict = {"exported": [], "skipped": [], "total": 0, "error": None}
+    ident = acctmod.account_identity(cfg)
+    print(f"[export] 导出账号: {ident['label']}"
+          "  (--account 名 + 页面账号名;导出成功会记进数据归属索引)")
+
+    def _probe_account(page):
+        """路过页面时顺手刷新"页面账号名",确保归属记录不是过期昵称。"""
+        nick = auth_mod.sync_account_nickname(cfg, page)
+        if nick and nick != ident["nickname"]:
+            ident["nickname"] = nick
+            ident["label"] = acctmod.account_label(ident["account"], nick)
+            print(f"[export] 页面账号名: {nick}")
+
     try:
-        sessions = sessions_mod.fetch_day_sessions(cfg, date_str)
+        sessions = sessions_mod.fetch_day_sessions(cfg, date_str, on_page=_probe_account)
     except sessions_mod.DaySessionsUnavailable as exc:
         print(f"[export] {exc}", file=sys.stderr)
         info["error"] = str(exc)
@@ -639,7 +669,7 @@ def _export_day(cfg: dict, day: _dt.date, *, excel: bool = False,
         line = sessions_mod.format_session_line(s)
         print(f"[export] 场次: {line}")
         try:
-            rows, meta = trend.read_live(cfg, room)
+            rows, meta = trend.read_live(cfg, room, on_page=_probe_account)
         except trend.TrendUnavailable as exc:
             reason = f"无整场序列数据(no_series): {exc}"
             info["skipped"].append({"room_id": room, "start": s.get("start_time"),
@@ -656,6 +686,10 @@ def _export_day(cfg: dict, day: _dt.date, *, excel: bool = False,
             print(f"[export]   跳过该场(不影响其他场次): {reason}", file=sys.stderr)
             continue
         info["exported"].append(room)
+        # 数据归属:记录"这天这场是哪个账号导出的",日报据此标注账号(失败不影响导出)
+        acctmod.record_export_account(out_dir, date_str, room,
+                                      account=ident["account"],
+                                      nickname=ident["nickname"])
         # T12:在线导出历史场次后,可选自动捕获直播间观看量分钟序列(真实分母;失败优雅降级)
         if capture_watch:
             print(f"[export]   尝试捕获直播间观看量(WatchCntTrend)…")
@@ -765,6 +799,8 @@ def _finalize_day_session(cfg: dict, rows, meta: dict, out_dir: pathlib.Path,
 def cmd_export(args) -> int:
     if getattr(args, "date", None):
         return cmd_export_date(args)
+    import accounts as acctmod
+    import auth as auth_mod
     import config as cfgmod
     from extractor import extra_metrics, trend, validation
     from exporter import schema as schema_mod
@@ -773,6 +809,14 @@ def cmd_export(args) -> int:
     cfg = _load_cfg(args)
     if cfg is None:
         return 2
+    ident = acctmod.account_identity(cfg)
+
+    def _probe_account(page):
+        """路过回放页时顺手刷新"页面账号名"(归属记录用)。"""
+        nick = auth_mod.sync_account_nickname(cfg, page)
+        if nick and nick != ident["nickname"]:
+            ident["nickname"] = nick
+            ident["label"] = acctmod.account_label(ident["account"], nick)
     if args.fixture:
         try:
             rows, meta = trend.load_fixture(args.fixture)
@@ -785,8 +829,9 @@ def cmd_export(args) -> int:
             print("[export] 需要 --room-id(在线导出)或 --fixture <json>(离线自测)。", file=sys.stderr)
             return 2
         print(f"[export] 数据来源: 在线读取回放页 room_id={args.room_id}(需已登录且有权限)…")
+        print(f"[export] 导出账号: {ident['label']}(--account 名 + 页面账号名)")
         try:
-            rows, meta = trend.read_live(cfg, args.room_id)
+            rows, meta = trend.read_live(cfg, args.room_id, on_page=_probe_account)
         except trend.TrendUnavailable as exc:
             print(f"[export] 在线读取不可用: {exc}", file=sys.stderr)
             print("[export] 人工引导: python main.py login 后重试;或先用 --fixture 离线自测。", file=sys.stderr)
@@ -865,6 +910,15 @@ def cmd_export(args) -> int:
     else:
         csv_path = to_csv_excel.write_csv(prefix, rows)  # 与 M2 完全一致(四列表头)
     print(f"[export] CSV 已生成: {csv_path}")
+    # 数据归属:只有按天导出的 live_<YYYYMMDD>_<room_id>.csv 才记进索引
+    # (单场导出是 <room_id>.csv,没有日期/room 的规范命名,不猜——日报只为前者服务)
+    m = re.fullmatch(r"live_(\d{8})_(\d+)$", csv_path.stem)
+    if m:
+        ymd = m.group(1)
+        acctmod.record_export_account(
+            csv_path.parent, f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}", m.group(2),
+            account=ident["account"], nickname=ident["nickname"],
+        )
     if args.compact:
         try:
             comp_rows = to_csv_excel.compact_rows(rows)

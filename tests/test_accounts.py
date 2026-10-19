@@ -18,6 +18,7 @@
 import copy
 import pathlib
 import shutil
+import json
 import subprocess
 import sys
 import tempfile
@@ -220,6 +221,90 @@ def test_watch_capture_cli_invalid_account_rejected():
     out = (r.stdout or "") + (r.stderr or "")
     assert r.returncode == 2, f"{r.returncode}\n{out}"
     assert "账号名不合法" in out, out
+
+
+def test_account_label_forms():
+    """展示名:有页面账号名 → "账号(昵称)",否则就是账号名;空昵称不留括号。"""
+    assert acct.account_label("1", "方寸自在SPA") == "1(方寸自在SPA)"
+    assert acct.account_label("1", "") == "1"
+    assert acct.account_label("1", None) == "1"
+    assert acct.account_label("1", "  方寸  ") == "1(方寸)"
+    assert acct.account_label(None, None) == "default"
+
+
+def test_export_account_index_roundtrip():
+    """导出归属索引:按天按 room 记录、重复导出保留 first_at、可看出混账号、坏输入不抛。"""
+    with tempfile.TemporaryDirectory() as td:
+        out = pathlib.Path(td)
+        assert acct.load_account_index(out) == {}
+        assert acct.export_accounts_for_day(out, "2026-09-04") == {}
+        p = acct.record_export_account(out, "20260904", "7000000000000000002",
+                                       account="1", nickname="方寸自在SPA",
+                                       exported_at="2026-09-04 20:10")
+        assert p == out / acct.ACCOUNT_INDEX_NAME and p.is_file()
+        by = acct.export_accounts_for_day(out, "2026-09-04")
+        assert by["7000000000000000002"]["account"] == "1"
+        assert by["7000000000000000002"]["nickname"] == "方寸自在SPA"
+        assert by["7000000000000000002"]["first_at"] == "2026-09-04 20:10"
+        # 同一场重复导出:覆盖导出时间,保留首次归属时间(便于核对是否中途换过账号)
+        acct.record_export_account(out, "2026-09-04", "7000000000000000002",
+                                   account="1", nickname="方寸自在SPA",
+                                   exported_at="2026-09-05 08:00")
+        e = acct.export_accounts_for_day(out, "2026-09-04")["7000000000000000002"]
+        assert e["exported_at"] == "2026-09-05 08:00"
+        assert e["first_at"] == "2026-09-04 20:10"
+        # 同一天另一个 room 换账号 → distinct_accounts 能看出混用
+        acct.record_export_account(out, "2026-09-04", "7000000000000000003",
+                                   account="2", nickname="另一个店")
+        assert acct.distinct_accounts(acct.export_accounts_for_day(out, "2026-09-04")) \
+            == ["1", "2"]
+        # 坏输入:直接返回 None,不写坏数据也不抛
+        assert acct.record_export_account(out, "", "r", account="1") is None
+        assert acct.record_export_account(out, "2026-09-04", "  ", account="1") is None
+
+
+def test_account_index_broken_json_tolerated():
+    """索引损坏(手改/半截写)时按"没有记录"处理,并允许下次写入自愈。"""
+    with tempfile.TemporaryDirectory() as td:
+        out = pathlib.Path(td)
+        (out / acct.ACCOUNT_INDEX_NAME).write_text("{not json", encoding="utf-8")
+        assert acct.load_account_index(out) == {}
+        assert acct.record_export_account(out, "2026-09-04", "r1", account="1") is not None
+        assert "r1" in acct.export_accounts_for_day(out, "2026-09-04")
+
+
+def test_update_account_nickname_keeps_login_time():
+    """页面账号名刷新只改 nickname,不得伪造 logged_in_at。"""
+    with tempfile.TemporaryDirectory() as td:
+        cfg = _cfg(td)
+        acct.write_account_meta(cfg, ACC, nickname="")
+        before = acct.read_account_meta(cfg, ACC)
+        p = acct.update_account_nickname(cfg, ACC, "方寸自在SPA")
+        assert p is not None and p.is_file()
+        after = acct.read_account_meta(cfg, ACC)
+        assert after["nickname"] == "方寸自在SPA"
+        assert after["nickname_at"]
+        assert after["logged_in_at"] == before["logged_in_at"]
+        assert after["first_login_at"] == before["first_login_at"]
+        # 空昵称:不写、不覆盖(避免页面偶尔读不到就把登记抹掉)
+        assert acct.update_account_nickname(cfg, ACC, "") is None
+        assert acct.read_account_meta(cfg, ACC)["nickname"] == "方寸自在SPA"
+
+
+def test_account_identity_reads_cfg_chain():
+    """account_identity 读 cfg 上生效的账号 + 登记昵称(日报展示用)。"""
+    with tempfile.TemporaryDirectory() as td:
+        cfg = _cfg(td)
+        acct.write_account_meta(cfg, ACC, nickname="方寸自在SPA")
+        acct.apply_account(cfg, ACC)
+        assert acct.current_account_name(cfg) == ACC
+        assert acct.account_identity(cfg) == {
+            "account": ACC, "nickname": "方寸自在SPA",
+            "label": f"{ACC}(方寸自在SPA)",
+        }
+        cfg["browser"]["account"] = ""
+        assert acct.current_account_name(cfg) == "default"
+        assert acct.account_identity(cfg)["label"] == "default"
 
 
 def _run_all():

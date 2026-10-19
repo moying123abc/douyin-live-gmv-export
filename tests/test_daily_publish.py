@@ -3,6 +3,7 @@
 
 运行:python tests/test_daily_publish.py
 """
+import csv
 import pathlib
 import sys
 import tempfile
@@ -45,7 +46,8 @@ def test_publish_day_creates_two_col_files():
         sum_lines = summ.read_text(encoding="utf-8-sig").splitlines()
         assert sum_lines[0].startswith("session_date,room_id")
         assert sum_lines[-1].startswith(daily_stats.TOTAL_LABEL + ",")
-        assert sum_lines[-1].endswith("346.0")  # 168 + 178
+        # 168 + 178;末列 account 在无归属记录时留空,所以不再以 gmv 结尾
+        assert sum_lines[-1].split(",")[-2] == "346.0"
 
 
 def test_publish_skips_bad_compact_header():
@@ -111,6 +113,60 @@ def test_publish_day_default_two_cols_unchanged():
         assert not (folder / "成交点_gpm_说明.txt").exists()
 
 
+def test_publish_day_account_note_and_column():
+    """提供 account_by_room 时:汇总表 account 列 = "账号(昵称)",并写 账号说明.txt。"""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        canonical, comp = _make_bundle(tmp)
+        by_room = {"r1": {"account": "1", "nickname": "方寸自在SPA",
+                          "exported_at": "2026-09-04 20:10", "first_at": "2026-09-04 20:10"}}
+        folder = daily_stats.publish_day(tmp, "2026-09-04", [comp], [canonical],
+                                         account_by_room=by_room)
+        with (folder / "日报汇总_20260904.csv").open(encoding="utf-8-sig", newline="") as fh:
+            rows = list(csv.DictReader(fh))
+        assert rows[0]["account"] == "1(方寸自在SPA)", rows[0]
+        text = (folder / "账号说明.txt").read_text(encoding="utf-8")
+        assert "room_id=r1" in text and "方寸自在SPA" in text
+        assert "导出时间: 2026-09-04 20:10" in text
+        assert "同一个账号" in text
+        assert "混合" not in text
+
+
+def test_publish_day_mixed_accounts_warns():
+    """同一天里出现两个账号:账号说明.txt 必须显式警告(防切账号拿错数据)。"""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        canonical, comp = _make_bundle(tmp)
+        rows2 = [dict(r, room_id="r2") for r in ROWS]
+        canonical2 = to_csv_excel.write_csv(tmp / "live_20260904_r2", rows2)
+        comp2 = to_csv_excel.write_compact_csv(
+            tmp / "live_20260904_r2_compact", to_csv_excel.compact_rows(rows2))
+        by_room = {
+            "r1": {"account": "1", "nickname": "方寸自在SPA", "exported_at": "x"},
+            "r2": {"account": "2", "nickname": "另一个店", "exported_at": "y"},
+        }
+        folder = daily_stats.publish_day(tmp, "2026-09-04", [comp, comp2],
+                                         [canonical, canonical2],
+                                         account_by_room=by_room)
+        text = (folder / "账号说明.txt").read_text(encoding="utf-8")
+        assert "混合了 2 个账号" in text, text
+        assert "方寸自在SPA" in text and "另一个店" in text
+
+
+def test_publish_day_missing_account_marks_unknown():
+    """老数据(没有归属记录):account 列留空,说明里标"未知",绝不猜账号。"""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        canonical, comp = _make_bundle(tmp)
+        folder = daily_stats.publish_day(tmp, "2026-09-04", [comp], [canonical],
+                                         account_by_room={})
+        text = (folder / "账号说明.txt").read_text(encoding="utf-8")
+        assert "账号: 未知" in text, text
+        with (folder / "日报汇总_20260904.csv").open(encoding="utf-8-sig", newline="") as fh:
+            rows = list(csv.DictReader(fh))
+        assert rows[0]["account"] == ""
+
+
 if __name__ == "__main__":
     test_publish_day_creates_two_col_files()
     test_publish_skips_bad_compact_header()
@@ -118,4 +174,7 @@ if __name__ == "__main__":
     test_day_files_excludes_watch_min()
     test_publish_day_with_gpm_enrich_three_cols()
     test_publish_day_default_two_cols_unchanged()
-    print("test_daily_publish: 6/6 passed")
+    test_publish_day_account_note_and_column()
+    test_publish_day_mixed_accounts_warns()
+    test_publish_day_missing_account_marks_unknown()
+    print("test_daily_publish: 9/9 passed")

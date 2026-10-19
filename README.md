@@ -52,7 +52,8 @@ douyin-live-gmv-export/
 │   ├── 联调结论-2026-09-04.md              # T8 真机联调:room_minute_indicator 行对象序列/L1 命中/口径核对
 │   ├── 场次枚举与按场次导出.md             # T9:账户可回放场次清单(每场=独立 room_id)+ 按场次 export 命令
 │   ├── 按天导出-日期口径.md                # T10:sessions/export --date 用法、CST 当日窗口与文件名规范
-│   └── 多账号切换.md                       # 多账号:原理、实测证据(目录隔离/复用)、常见问题
+│   ├── 多账号切换.md                       # 多账号:原理、实测证据(目录隔离/复用)、常见问题
+│   └── 日报中的导出账号.md                 # 日报 account 列 / _account_index.json / 混账号警告与核对方法
 └── data/
     ├── browser_profile/   # 持久化登录 profile(自动创建,勿提交)
     ├── accounts/          # 具名账号的 profile 与账号登记(自动创建,勿提交)
@@ -175,6 +176,10 @@ python main.py accounts
 - 想把账号固定下来:在 `config.yaml` 写 `browser.account: spa2`(命令行 `--account` 仍优先)。
 - 不想记参数就用图形界面:双击 `启动助手.bat`,右上角下拉框选账号即可(等价于 `--account`),「账号」页签里能用新名字登录。
 - 同一个账号**不要并发**跑多个命令(同一个 profile 目录同时只能被一个 Chromium 实例使用)。
+- **日报里能核对是谁导出的**:按天导出成功会记一笔归属(账号 + 页面账号名),日报汇总表因此多出
+  ~account~ 列(如 ~1(方寸自在SPA)~),并在日报文件夹里生成 ~账号说明.txt~;同一天混了多个账号会显式警告。
+  索引在 ~data/outputs/_account_index.json~,细节见
+  [docs/日报中的导出账号.md](docs/日报中的导出账号.md)。
 - 原理与实测证据(两个目录的登录态完全隔离、把目录整份复制出去后仍判定"已登录")见
   [docs/多账号切换.md](docs/多账号切换.md)。
 
@@ -242,8 +247,9 @@ python main.py sessions --date 09-04             # 等价于上面的 2026-09-04
 
 ## 一键日报(daily:支持一次导出多天)
 
-`daily` 把某天(或**多天**)的已结束场次整理成 `日报_<YYYYMMDD>` 文件夹
-(每场成交点表 + 日报汇总,有观看档时另含小时 GPM 表)。
+`daily` 把某天(或**多天**)的已结束场次整理成 `日报_<YYYYMMDD>` 文件夹:
+每场 `成交点_<room_id>.csv` + `日报汇总_<YYYYMMDD>.csv`(含 **account 导出账号** 列)
++ `账号说明.txt`(每场由哪个账号导出;老数据标"未知",混账号会警告),有观看档时另含小时 GPM 表。
 
 ```powershell
 # 单日(不传就是今天;与旧版行为完全一致)
