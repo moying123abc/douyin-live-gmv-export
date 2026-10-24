@@ -2,12 +2,13 @@
 r"""启动助手.pyw —— 双击这个文件就能打开图形界面(不弹安全警告,也不闪控制台窗口)。
 
 为什么不直接用 启动助手.bat 双击:
-  这台机器上装了带进程注入的防护软件(实测对话框宿主进程里挂着
-  C:\Program Files (x86)\Kaspersky Lab\Kaspersky 21.26\x64\com_antivirus.dll),
-  它对**本项目目录树下**的脚本类文件(.bat / .cmd / .vbs / .js)双击启动会弹出
-  「打开文件 - 安全警告 / 无法验证发布者」;而 .pyw / .py 不在它拦的类型里。
-  (Windows 自己的区域查询返回 zone=0 本地计算机,这些文件也没有下载标记,所以
-  "解除锁定"、低风险文件类型名单都无效。)
+  真因(隔离实验证实,不是杀毒软件、也不是下载标记):项目所在目录树可能带着
+  **低完整性标签**(Low IL,沙箱类工具准备这个工作区时留下的,icacls 会显示
+  "Mandatory Label\Low Mandatory Level:(OI)(CI)(NW)"),里面的文件都继承该标签;
+  Windows 从低完整性位置启动**脚本类**文件(.bat / .cmd / .vbs / .js / .lnk)时
+  会弹「打开文件 - 安全警告 / 无法验证发布者」,而 .pyw / .py 不属于这一类,不受影响。
+  (实测文件没有 Mark-of-the-Web、区域查询返回 zone=0,所以"解除锁定"与
+  "低风险文件类型"都无效;杀毒软件全部暂停也照样弹。)
 
 本文件和 启动助手.bat 做同一件事:挑一个 Python 3.9+ 的 pythonw.exe,用它跑 gui.py。
 命令行里也照旧可以用 启动助手.bat。
@@ -65,7 +66,8 @@ def _candidates():
     # 1) 现在这个进程的解释器(双击 .pyw 通常是 C:\Windows\pyw.exe 选中的 pythonw)
     if sys.executable and sys.executable.lower().endswith("pythonw.exe"):
         add(sys.executable)
-    # 2) 项目自带的虚拟环境(仅当它够新;本机这份是 3.8,会被版本检查刷掉)
+    # 2) 项目自带的虚拟环境(仅当版本够新;virtualenv 的 pythonw 是 redirector,
+    #    它会再拉起 base pythonw,所以任务管理器里会看到两个进程,属正常)
     add(str(HERE / "venv" / "Scripts" / "pythonw.exe"))
     # 3) 常见的本机安装位置
     local = os.environ.get("LOCALAPPDATA") or ""
