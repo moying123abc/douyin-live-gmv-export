@@ -211,6 +211,9 @@ def cmd_sessions(args) -> int:
         return 2
     try:
         sessions = sessions_mod.fetch_day_sessions(cfg, day.isoformat())
+    except sessions_mod.DaySessionsUnauthenticated as exc:
+        print(f"[sessions] {exc}", file=sys.stderr)
+        return 3
     except sessions_mod.DaySessionsUnavailable as exc:
         print(f"[sessions] {exc}", file=sys.stderr)
         return 2
@@ -658,6 +661,10 @@ def _export_day(cfg: dict, day: _dt.date, *, excel: bool = False,
 
     try:
         sessions = sessions_mod.fetch_day_sessions(cfg, date_str, on_page=_probe_account)
+    except sessions_mod.DaySessionsUnauthenticated as exc:
+        print(f"[export] {exc}", file=sys.stderr)
+        info["error"] = str(exc)
+        return 3, info
     except sessions_mod.DaySessionsUnavailable as exc:
         print(f"[export] {exc}", file=sys.stderr)
         info["error"] = str(exc)
@@ -841,6 +848,9 @@ def cmd_export(args) -> int:
         print(f"[export] 导出账号: {ident['label']}(--account 名 + 页面账号名)")
         try:
             rows, meta = trend.read_live(cfg, args.room_id, on_page=_probe_account)
+        except trend.TrendUnauthenticated as exc:
+            print(f"[export] 在线读取不可用: {exc}", file=sys.stderr)
+            return 3
         except trend.TrendUnavailable as exc:
             print(f"[export] 在线读取不可用: {exc}", file=sys.stderr)
             print("[export] 人工引导: python main.py login 后重试;或先用 --fixture 离线自测。", file=sys.stderr)

@@ -203,32 +203,179 @@ def matched_login_cookies(context) -> list:
 
 
 def session_available(cfg: dict, context) -> bool:
-    """通过 Cookie 存在性判断是否已有登录会话(不读取、不打印 Cookie 值)。
+    """Cookie 层面的**预筛**:本地是否还留着"登录后才会种下"的鉴权 Cookie。
 
-    仅当出现**登录后才会种下**的鉴权 Cookie 才判定为已登录;打开登录页即出现的
-    匿名 Cookie(如 passport_csrf_token)一律不算,避免"未登录却报登录成功"。
+    注意:这是必要条件,不是充分条件。鉴权 Cookie 的到期时间远长于服务端会话的
+    实际寿命(2026-11-01 实测:sessionid 还剩 39 天才到期,服务端却已判未登录)。
+    真正的登录判定请用 verify_session()。
     """
     return bool(matched_login_cookies(context))
 
 
-def ensure_logged_in(cfg: dict, context, page, *, wait_seconds: int | None = None) -> bool:
-    """确保会话已登录。
+# ---------------------------------------------------------------------------
+# 服务端登录态校验(2026-11-01 修复:Cookie 还在 → 误判"已登录")
+#
+# 实测证据(账号 1):
+#   - 5 个鉴权 Cookie 全在,sessionid 到期 2026-12-10(还剩 39 天);
+#   - session_available() 判 True;
+#   - 但 /dp/liveScreen 被重定向到 /livesite/login(页面=抖音扫码登录);
+#   - room/paged 返回 status_code=8 msg='用户未登录'。
+# 修复前 ensure_logged_in 命中 Cookie 就直接 return,连页面都不打开 →
+# login 几秒内误报"成功"、用户拿不到扫码窗口也来不及扫,直到 daily 导出
+# 才以 status_code=8 失败;且 record_login 会把 logged_in_at 刷成假时间。
+# 现在:Cookie 只作预筛,必须再向服务端确认。
+# ---------------------------------------------------------------------------
 
-    - 若已有登录 Cookie → 直接返回 True(自动复用);
-    - 否则在有头窗口打开登录地址,等本机人工扫码/登录(轮询 Cookie,
-      最长 wait_seconds 秒;用户完成后无需按回车,会自动被检测到);
-    - 返回是否登录成功;失败时不做任何注入/绕过,由调用方给出人工引导。
+SESSION_OK = "ok"
+SESSION_EXPIRED = "expired"
+SESSION_UNKNOWN = "unknown"
+
+# 接口统一信封里的状态码:0=成功;8=用户未登录(实测)
+_SESSION_OK_CODES = {0}
+_SESSION_EXPIRED_CODES = {8}
+# 会话失效时页面会被踢到的路径(实测 /livesite/login)
+_SESSION_EXPIRED_URL_MARKERS = ("/livesite/login", "/passport/login", "/login")
+# 登录页 / 过期提示的文案特征
+_SESSION_EXPIRED_TEXT_MARKERS = (
+    "扫码登录", "验证码登录", "登录已过期", "登录过期", "请重新登录", "重新扫码",
+)
+
+_PROBE_TIMEOUT_MS = 20_000
+
+
+def _as_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _url_path(url) -> str:
+    try:
+        from urllib.parse import urlsplit
+        return urlsplit(str(url or "")).path or ""
+    except Exception:
+        return ""
+
+
+def classify_session_probe(*, status_code=None, url=None, text=None) -> str:
+    """把探测信号归类为 SESSION_OK / SESSION_EXPIRED / SESSION_UNKNOWN(纯函数,可离线测)。
+
+    优先级:接口状态码 > 页面 URL > 页面文案。
+    - 状态码 0 → ok(服务端已确认,页面还没渲染完也算数);
+    - 状态码 8 → expired;
+    - 其它状态码(权限类错误等)不单独下结论,继续看页面信号;
+    - 都判不出来 → unknown(调用方保守处理并提示,不冒充已登录)。
     """
-    if session_available(cfg, context):
-        print(f"[auth] 账号 {account_name(cfg)}:检测到已有登录会话"
-              "(profile 自动复用,鉴权 Cookie: "
-              + ", ".join(matched_login_cookies(context)) + "),无需重新扫码。")
-        return True
+    code = _as_int(status_code)
+    if code is not None:
+        if code in _SESSION_OK_CODES:
+            return SESSION_OK
+        if code in _SESSION_EXPIRED_CODES:
+            return SESSION_EXPIRED
+    path = _url_path(url) if url else ""
+    if path and any(marker in path for marker in _SESSION_EXPIRED_URL_MARKERS):
+        return SESSION_EXPIRED
+    if text and any(marker in str(text) for marker in _SESSION_EXPIRED_TEXT_MARKERS):
+        return SESSION_EXPIRED
+    return SESSION_UNKNOWN
+
+
+def _page_body_text(page) -> str:
+    try:
+        return str(page.evaluate(
+            "() => (document.body && document.body.innerText) || ''") or "")
+    except Exception:
+        return ""
+
+
+def probe_session_status(cfg: dict, context):
+    """用**一次 GET**向服务端确认会话(不渲染整页、不读取/不打印 Cookie 值)。
+
+    返回 (status_code, detail);拿不到响应时 status_code 为 None。
+    """
+    try:
+        # 延迟导入:auth 被 extractor.sessions 导入,模块级互引会循环
+        from extractor.sessions import day_paged_url
+        import datetime as _dt
+        url = day_paged_url(_dt.date.today().strftime("%Y-%m-%d"))
+    except Exception as exc:  # noqa: BLE001 — 探测失败不应中断调用方
+        return None, f"构造探测请求失败: {type(exc).__name__}: {exc}"
+    try:
+        payload = context.request.get(url, timeout=_PROBE_TIMEOUT_MS).json()
+    except Exception as exc:  # noqa: BLE001
+        return None, f"探测请求失败: {type(exc).__name__}: {exc}"
+    if not isinstance(payload, dict):
+        return None, "探测响应不是 JSON 对象"
+    return payload.get("status_code"), str(payload.get("status_msg") or "")
+
+
+def verify_session(cfg: dict, context, page=None) -> str:
+    """向服务端确认会话是否仍然有效,返回 SESSION_OK / SESSION_EXPIRED / SESSION_UNKNOWN。"""
+    code, _detail = probe_session_status(cfg, context)
+    verdict = classify_session_probe(status_code=code)
+    if verdict != SESSION_UNKNOWN:
+        return verdict
+    # 拿到了响应但状态码不明确(例如权限类错误码)→ 再看业务页有没有被踢到登录页
+    if page is not None and code is not None:
+        base = cfg.get("probe", {}).get("base_url", "https://eos.douyin.com/dp/liveScreen")
+        try:
+            page.goto(base, wait_until="domcontentloaded", timeout=60_000)
+            page.wait_for_timeout(4000)
+        except Exception:  # noqa: BLE001
+            return SESSION_UNKNOWN
+        return classify_session_probe(url=getattr(page, "url", ""), text=_page_body_text(page))
+    return SESSION_UNKNOWN
+
+
+def ensure_logged_in(cfg: dict, context, page, *, wait_seconds: int | None = None,
+                     verify: bool = True, wait_for_scan: bool = False) -> bool:
+    """确保会话**真的**可用;不可用时的处置取决于 wait_for_scan。
+
+    判定顺序(2026-11-01 起):
+    1. 本地有鉴权 Cookie → 再问服务端(verify_session):
+       - 明确 ok      → 复用,返回 True;
+       - 明确 expired → 判定为**需要重新扫码**;
+       - 判不出来     → 警告后按已有 Cookie 继续(与旧行为一致,避免网络抖动时误拦)。
+    2. 需要重新扫码时:
+       - wait_for_scan=False(export/daily/sessions/probe 等)→ **立即返回 False**,
+         并打印 `python main.py login<账号后缀>`,不让批处理任务空等人工;
+       - wait_for_scan=True(仅 login 子命令)→ 打开登录页,轮询到**服务端**确认为止。
+
+    verify=False 可退回「只看 Cookie」的旧行为(仅供排障)。
+    返回是否可用;失败时不做任何注入/绕过,由调用方给出人工引导。
+    """
+    acc = account_name(cfg)
+    cookies = matched_login_cookies(context)
+    need_scan = not cookies
+
+    if cookies:
+        state = verify_session(cfg, context, page) if verify else SESSION_OK
+        if state == SESSION_OK:
+            print(f"[auth] 账号 {acc}:已登录(服务端校验通过);profile 自动复用,"
+                  "鉴权 Cookie: " + ", ".join(cookies) + ",无需重新扫码。")
+            return True
+        if state == SESSION_EXPIRED:
+            need_scan = True
+            print(f"[auth] 账号 {acc}:本地仍有鉴权 Cookie(" + ", ".join(cookies) + "),"
+                  "但**服务端会话已失效**(接口返回未登录 / 页面要求扫码)。")
+            print("[auth] 原因:鉴权 Cookie 的到期时间比会话实际寿命长,只看 Cookie 会误判成已登录。")
+        else:
+            print(f"[auth] 账号 {acc}:警告 — 无法向服务端确认登录态(网络或接口异常),"
+                  "暂按已有 Cookie 继续;若随后报「未登录」,请重新扫码。")
+            return True
+
+    if not need_scan:
+        return False
+
+    if not wait_for_scan:
+        print(f"[auth] 需要重新扫码登录。请先运行:"
+              f" python main.py login{account_hint(cfg)}", file=sys.stderr)
+        return False
 
     login_url = cfg.get("browser", {}).get("login_url", "https://eos.douyin.com/")
     total = wait_seconds or int(cfg.get("browser", {}).get("wait_login_seconds", 1800))
-    print(f"[auth] 未检测到账号 {account_name(cfg)} 的已登录会话,"
-          "将在有头(可见)浏览器窗口中打开登录页。")
+    print(f"[auth] 账号 {acc}:请重新扫码登录,马上打开登录页。")
     print(f"[auth] 登录地址: {login_url}")
     print("[auth] 请在浏览器窗口里扫码 / 登录这个账号(需对目标直播间有查看权限);"
           "要再挂一个账号请另起账号名: python main.py login --account <名字>")
@@ -246,17 +393,20 @@ def ensure_logged_in(cfg: dict, context, page, *, wait_seconds: int | None = Non
     last_report = 0.0
     while time.time() < deadline:
         if session_available(cfg, context):
-            print(f"[auth] 账号 {account_name(cfg)} 登录成功(检测到鉴权 Cookie: "
-                  + ", ".join(matched_login_cookies(context)) + ")。")
-            return True
+            # Cookie 出现还不够,必须服务端确认(修复前这里就是误报的来源)
+            state = verify_session(cfg, context, page) if verify else SESSION_OK
+            if state == SESSION_OK:
+                print(f"[auth] 账号 {acc} 登录成功(服务端校验通过;鉴权 Cookie: "
+                      + ", ".join(matched_login_cookies(context)) + ")。")
+                return True
         now = time.time()
         if now - last_report >= 15:
             remaining = int(deadline - now)
             print(f"[auth] 仍在等待人工登录… 剩余约 {remaining} 秒。")
             last_report = now
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(5000)
 
-    print(f"[auth] 等待超时,未检测到账号 {account_name(cfg)} 的登录。", file=sys.stderr)
+    print(f"[auth] 等待超时,未检测到账号 {acc} 的有效登录。", file=sys.stderr)
     return False
 
 
@@ -271,7 +421,7 @@ def perform_login(cfg: dict) -> int:
 
     pw, context, page = open_session(cfg, headful=True)
     try:
-        ok = ensure_logged_in(cfg, context, page)
+        ok = ensure_logged_in(cfg, context, page, wait_for_scan=True)
         if ok:
             record_login(cfg, page)
             print("[auth] 登录态已就绪并持久化于本地 profile(不入库、不导出)。")

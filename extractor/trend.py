@@ -46,6 +46,13 @@ class TrendUnavailable(RuntimeError):
     """在线读取不可用 / 夹具结构无法还原整场序列时抛出(附人工引导)。"""
 
 
+class TrendUnauthenticated(TrendUnavailable):
+    """专门表示**登录态不可用**(会话过期 / 服务端判未登录),需要人工重新扫码。
+
+    与"该场次没有数据"区分开,调用方据此返回"未登录"类退出码(3)。
+    """
+
+
 # ---------------------------------------------------------------------------
 # 离线:夹具读取
 # ---------------------------------------------------------------------------
@@ -427,7 +434,9 @@ def read_live(cfg: dict, room_id: str, *,
             "session_start": None, "session_end": None, "source": url, "layer_hit": None}
     try:
         if not auth.ensure_logged_in(cfg, context, page):
-            raise TrendUnavailable("无登录会话;请先 python main.py login 完成人工扫码登录")
+            raise TrendUnauthenticated(
+                "登录态不可用(会话已过期或需要扫码);请先运行 "
+                f"python main.py login{auth.account_hint(cfg)} 重新扫码")
         hints = cfg.get("probe", {}).get("network_url_hints") or []
         recorder = probe._ResponseRecorder(hints)
         page.on("response", recorder.on_response)

@@ -137,18 +137,23 @@ python main.py login
 ```
 
 - 会以**有头窗口**打开 `https://eos.douyin.com/`,请在弹出的浏览器里**扫码 / 登录你的抖音账号**(该账号须对目标直播间有查看权限)。
-- **登录成功的判定标准**:只有当浏览器里出现 `sessionid` / `sessionid_ss` / `sid_tt` /
-  `uid_tt` / `sid_guard` 这类**登录后才会种下**的鉴权 Cookie 时,程序才判定成功并自动继续
-  (成功时会把命中的 Cookie 名打印出来供你核对)。仅打开登录页就会产生的匿名 Cookie
-  (如 `passport_csrf_token`)**不算登录成功**,以免出现"提示成功、实际未登录"的误导。
+- **登录成功的判定标准**(两层,缺一不可):
+  1. **Cookie 预筛**:浏览器里出现 `sessionid` / `sessionid_ss` / `sid_tt` / `uid_tt` /
+     `sid_guard` 这类**登录后才会种下**的鉴权 Cookie。仅打开登录页就会产生的匿名 Cookie
+     (如 `passport_csrf_token`)**不算登录成功**。
+  2. **服务端确认**(2026-11-01 起):再用一次接口请求确认会话在服务端仍然有效
+     (状态码 0 = 有效;8 = 用户未登录;或页面被重定向到 `/livesite/login`)。
+  > 为什么必须两层:鉴权 Cookie 的**到期时间远长于会话的实际寿命**。实测过 `sessionid`
+  > 还剩 39 天却已被服务端判为未登录的情况——只看 Cookie 会误报"登录成功",
+  > 然后等到导出日报时才以 `status_code=8` 失败。
 - 凭据仅保存在本地持久化 profile `data/browser_profile/`;后续 `probe` / `export` 自动复用,无需重复登录。
 - **常见问题**:
   - 一直停在"仍在等待人工登录…"→ 确认那个**有头浏览器窗口**已经弹出且没有被其他窗口遮挡,在窗口内完成扫码;窗口若被关掉请重跑命令。
-  - 提示登录成功、但之后命令报 `status_code=8 用户未登录`→ 会话已失效(或该账号无此数据权限):
-    删除 `data\browser_profile\` 后重跑 `python main.py login` 重新扫码。
+  - 提示「登录态不可用(会话已过期或需要扫码)」/ 命令报 `status_code=8 用户未登录`→ 会话已在服务端失效(或该账号无此数据权限)。
+    **直接重跑 `python main.py login` 重新扫码即可**(程序会识别「Cookie 还在但会话已过期」并自动打开扫码窗口);**不需要**删除 profile。
   - 换账号 / 换直播间权限:**推荐用多账号**(见下一节 `python main.py login --account <名字>`:
     每个账号一份独立 profile,互不干扰);也可以删除 `data\browser_profile\` 后重新登录(会丢掉原账号的登录态)。
-- 会话过期时重跑 `login` 即可;若需强制重新登录,删除 `data/browser_profile/` 后重跑。
+- 会话过期时重跑 `login` 即可,程序会自动打开扫码窗口;只有 Cookie 本身损坏、重登反复失败时,才需要把 profile 目录**改名备份**后重登(不建议直接删,里面是登录凭据)。
 
 ## 多账号切换(一个账号一个独立登录 profile)
 

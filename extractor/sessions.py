@@ -33,6 +33,14 @@ class DaySessionsUnavailable(RuntimeError):
     """在线拉取不可用/登录不可用/响应异常;message 内含人工引导。"""
 
 
+class DaySessionsUnauthenticated(DaySessionsUnavailable):
+    """专门表示**登录态不可用**(会话过期 / 服务端判未登录),需要人工重新扫码。
+
+    与"当天没有场次"区分开:前者要人扫一次码,后者是正常的空结果。
+    调用方据此返回"未登录"类退出码(3),而不是"无场次"类(2)。
+    """
+
+
 # ---------------------------------------------------------------------------
 # 时间窗口与解析(纯函数)
 # ---------------------------------------------------------------------------
@@ -271,8 +279,8 @@ def fetch_day_sessions(cfg: dict, date_str: str, *, on_page=None) -> List[Dict[s
         raise DaySessionsUnavailable(f"打开浏览器失败: {exc}\n{_guidance_text(day_str)}") from exc
     try:
         if not auth.ensure_logged_in(cfg, context, page):
-            raise DaySessionsUnavailable(
-                "无登录会话。\n" + _guidance_text(day_str)
+            raise DaySessionsUnauthenticated(
+                "登录态不可用(会话已过期或需要扫码)。\n" + _guidance_text(day_str)
             )
         try:
             page.goto("https://eos.douyin.com/dp/liveScreen", wait_until="domcontentloaded", timeout=60_000)
@@ -297,10 +305,12 @@ def fetch_day_sessions(cfg: dict, date_str: str, *, on_page=None) -> List[Dict[s
             raise DaySessionsUnavailable(f"room/paged 响应异常(非对象)。{_guidance_text(day_str)}")
         status_code = payload.get("status_code")
         if status_code not in (0, "0", None):
-            raise DaySessionsUnavailable(
-                f"room/paged 返回 status_code={status_code} msg={payload.get('status_msg')!r}。"
-                + _guidance_text(day_str)
-            )
+            message = (f"room/paged 返回 status_code={status_code} "
+                       f"msg={payload.get('status_msg')!r}。")
+            if str(status_code) == "8":
+                # 8 = 用户未登录:与"没有权限/没有数据"区分,提示去扫码
+                raise DaySessionsUnauthenticated(message + _guidance_text(day_str))
+            raise DaySessionsUnavailable(message + _guidance_text(day_str))
         infos = payload.get("room_infos") or []
         return parse_paged_rows(infos, date_str=day_str, strict_day=True)
     finally:
