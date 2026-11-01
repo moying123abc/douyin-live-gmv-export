@@ -22,6 +22,12 @@ venv/
 # 输入法(如搜狗)在程序工作目录写下的日志(开图形界面时可能出现)
 debug.log
 
+# 本地给 agent / 接手者的交接说明(个人自备,不随仓库发布)
+AGENT_HANDOVER.md
+
+# agent 工作记忆(含真实 room_id / 账号名 / 经营数字,公开仓库必须挡住)
+.workbuddy/
+
 # 编辑器 / 系统
 .idea/
 .vscode/
