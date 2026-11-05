@@ -166,7 +166,7 @@ python main.py login --account spa2
 # 2) 之后所有命令带上同一个 --account,自动复用该账号的登录态
 python main.py sessions --account spa2 --date 09-04
 python main.py daily    --account spa2 --date 09-04
-python main.py export   --account spa2 --room-id 7681479579405011739 --date 2026-09-04
+python main.py export   --account spa2 --room-id 7000000000000000001 --date 2026-09-04
 
 # 3) 看现在有哪些账号(默认账号前面带 *)
 python main.py accounts
@@ -182,7 +182,7 @@ python main.py accounts
 - 不想记参数就用图形界面:双击 `启动助手.pyw`(或 `启动助手.bat`),右上角下拉框选账号即可(等价于 `--account`),「账号」页签里能用新名字登录。
 - 同一个账号**不要并发**跑多个命令(同一个 profile 目录同时只能被一个 Chromium 实例使用)。
 - **日报里能核对是谁导出的**:按天导出成功会记一笔归属(账号 + 页面账号名),日报汇总表因此多出
-  ~account~ 列(如 ~1(方寸自在SPA)~),并在日报文件夹里生成 ~账号说明.txt~;同一天混了多个账号会显式警告。
+  ~account~ 列(如 ~1(示例账号A)~),并在日报文件夹里生成 ~账号说明.txt~;同一天混了多个账号会显式警告。
   索引在 ~data/outputs/_account_index.json~,细节见
   [docs/日报中的导出账号.md](docs/日报中的导出账号.md)。
 - 原理与实测证据(两个目录的登录态完全隔离、把目录整份复制出去后仍判定"已登录")见

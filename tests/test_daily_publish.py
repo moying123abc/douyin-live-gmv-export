@@ -118,15 +118,15 @@ def test_publish_day_account_note_and_column():
     with tempfile.TemporaryDirectory() as td:
         tmp = pathlib.Path(td)
         canonical, comp = _make_bundle(tmp)
-        by_room = {"r1": {"account": "1", "nickname": "方寸自在SPA",
+        by_room = {"r1": {"account": "1", "nickname": "示例账号A",
                           "exported_at": "2026-09-04 20:10", "first_at": "2026-09-04 20:10"}}
         folder = daily_stats.publish_day(tmp, "2026-09-04", [comp], [canonical],
                                          account_by_room=by_room)
         with (folder / "日报汇总_20260904.csv").open(encoding="utf-8-sig", newline="") as fh:
             rows = list(csv.DictReader(fh))
-        assert rows[0]["account"] == "1(方寸自在SPA)", rows[0]
+        assert rows[0]["account"] == "1(示例账号A)", rows[0]
         text = (folder / "账号说明.txt").read_text(encoding="utf-8")
-        assert "room_id=r1" in text and "方寸自在SPA" in text
+        assert "room_id=r1" in text and "示例账号A" in text
         assert "导出时间: 2026-09-04 20:10" in text
         assert "同一个账号" in text
         assert "混合" not in text
@@ -142,7 +142,7 @@ def test_publish_day_mixed_accounts_warns():
         comp2 = to_csv_excel.write_compact_csv(
             tmp / "live_20260904_r2_compact", to_csv_excel.compact_rows(rows2))
         by_room = {
-            "r1": {"account": "1", "nickname": "方寸自在SPA", "exported_at": "x"},
+            "r1": {"account": "1", "nickname": "示例账号A", "exported_at": "x"},
             "r2": {"account": "2", "nickname": "另一个店", "exported_at": "y"},
         }
         folder = daily_stats.publish_day(tmp, "2026-09-04", [comp, comp2],
@@ -150,7 +150,7 @@ def test_publish_day_mixed_accounts_warns():
                                          account_by_room=by_room)
         text = (folder / "账号说明.txt").read_text(encoding="utf-8")
         assert "混合了 2 个账号" in text, text
-        assert "方寸自在SPA" in text and "另一个店" in text
+        assert "示例账号A" in text and "另一个店" in text
 
 
 def test_publish_day_missing_account_marks_unknown():

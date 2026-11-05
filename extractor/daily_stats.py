@@ -143,7 +143,7 @@ def room_of_file(path) -> str:
 
 
 def _account_cell(info) -> str:
-    """归属记录 → 表格单元:"1(方寸自在SPA)" / "1" / ""(无记录)。"""
+    """归属记录 → 表格单元:"1(示例账号A)" / "1" / ""(无记录)。"""
     if not isinstance(info, dict):
         return ""
     acc = str(info.get("account") or "").strip()

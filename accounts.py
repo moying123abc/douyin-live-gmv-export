@@ -191,10 +191,10 @@ def display_path(p: pathlib.Path) -> str:
 # 账号展示名 / 账归属记录(日报用:"这批数据是哪个账号导出的")
 # ---------------------------------------------------------------------------
 # 账号名(--account)只说明"用的哪个登录 profile",真正的店铺账号要读页面上
-# 右上角的账号名(nickname,登录时已登记)。二者合起来写成 "1(方寸自在SPA)",
+# 右上角的账号名(nickname,登录时已登记)。二者合起来写成 "1(示例账号A)",
 # 才能在切换账号后一眼核对导出的是哪个账号。
 def account_label(account, nickname=None) -> str:
-    """账号展示名:有页面账号名 → "1(方寸自在SPA)",否则就是账号名。"""
+    """账号展示名:有页面账号名 → "1(示例账号A)",否则就是账号名。"""
     acc = str(account or DEFAULT_ACCOUNT).strip() or DEFAULT_ACCOUNT
     nick = str(nickname or "").strip()
     return f"{acc}({nick})" if nick else acc
@@ -245,7 +245,7 @@ def update_account_nickname(cfg: dict, name=None, nickname: str = "") -> pathlib
 
 # 导出归属索引:放在导出目录下(data/outputs/_account_index.json,已被 .gitignore 忽略),
 # 结构 {"version": 1, "updated_at": "...", "days": {"2026-09-04": {"<room_id>": {
-#   "account": "1", "nickname": "方寸自在SPA", "exported_at": "...", "first_at": "..."}}}}。
+#   "account": "1", "nickname": "示例账号A", "exported_at": "...", "first_at": "..."}}}}。
 # 日报生成时据此在汇总表写 account 列、并写一份 账号说明.txt。
 ACCOUNT_INDEX_NAME = "_account_index.json"
 ACCOUNT_INDEX_VERSION = 1

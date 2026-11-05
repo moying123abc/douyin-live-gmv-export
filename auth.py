@@ -139,7 +139,7 @@ def sync_account_nickname(cfg: dict, page) -> str:
 
     为什么要做:--account 只是本地登录 profile 的名字,用户切账号后真正代表
     数据归属的是百应页面右上角的账号名。导出时路过页面就更新一次登记,
-    日报因此能写出"1(方寸自在SPA)"这样的归属。失败绝不影响导出。
+    日报因此能写出"1(示例账号A)"这样的归属。失败绝不影响导出。
     """
     nick = read_account_nickname(page)
     if not nick:
