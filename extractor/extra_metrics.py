@@ -197,7 +197,7 @@ def probe_online(cfg: dict, room_id: str) -> Dict[str, Any]:
         return {"available": False, "metrics": [], "reasons": [f"缺少依赖: {exc}"]}
     try:
         import auth
-        pw, context, page = auth.open_session(cfg, headful=True)
+        pw, context, page = auth.open_session(cfg)  # 显示模式跟随 cfg(CLI/GUI/配置)
     except SystemExit:
         return {"available": False, "metrics": [], "reasons": ["未登录/缺少 playwright,请先 python main.py login"]}
     except Exception as exc:  # pragma: no cover

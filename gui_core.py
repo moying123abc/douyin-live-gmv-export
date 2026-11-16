@@ -141,6 +141,11 @@ def cli_account(name: Optional[str]) -> Optional[str]:
     return n
 
 
+def _display_args(headless: bool) -> List[str]:
+    """拼显示模式参数:勾了「后台运行」才加 --headless;不勾则跟随配置文件 browser.headful。"""
+    return ["--headless"] if headless else []
+
+
 def _account_args(account: Optional[str], config: Optional[str]) -> List[str]:
     """拼 --config / --account(账号名非法就地报错,不让子进程白跑一趟)。"""
     args: List[str] = []
@@ -163,7 +168,7 @@ def build_login_args(account: Optional[str] = None, config: Optional[str] = None
 
 
 def build_sessions_args(date: Optional[str] = None, account: Optional[str] = None,
-                        config: Optional[str] = None) -> List[str]:
+                        config: Optional[str] = None, *, headless: bool = False) -> List[str]:
     """sessions:只读列出某天(东八区)已结束场次。"""
     days = check_dates(date or "", "日期")
     if len(days) > 1:
@@ -171,13 +176,13 @@ def build_sessions_args(date: Optional[str] = None, account: Optional[str] = Non
     args = ["sessions"]
     if days:
         args += ["--date", days[0]]
-    return args + _account_args(account, config)
+    return args + _display_args(headless) + _account_args(account, config)
 
 
 def build_export_args(date: Optional[str] = None, room_id: Optional[str] = None, *,
                       excel: bool = True, compact: bool = False, capture_watch: bool = False,
                       out: Optional[str] = None, account: Optional[str] = None,
-                      config: Optional[str] = None) -> List[str]:
+                      config: Optional[str] = None, headless: bool = False) -> List[str]:
     """export:按天导出(--date)或指定场次(--room-id);CSV 始终输出,--excel 另存 xlsx。"""
     room = (room_id or "").strip()
     if room:
@@ -195,11 +200,12 @@ def build_export_args(date: Optional[str] = None, room_id: Optional[str] = None,
         args.append("--capture-watch")
     if out:
         args += ["--out", str(out).strip()]
-    return args + _account_args(account, config)
+    return args + _display_args(headless) + _account_args(account, config)
 
 
 def build_stats_args(date: Optional[str] = None, *, auto: bool = False, out: Optional[str] = None,
-                     account: Optional[str] = None, config: Optional[str] = None) -> List[str]:
+                     account: Optional[str] = None, config: Optional[str] = None,
+                     headless: bool = False) -> List[str]:
     """stats:读 data/outputs 里已导出的分钟量表做场次级汇总(--auto 缺失时在线补导出)。"""
     days = check_dates(date or "", "日期")
     if len(days) > 1:
@@ -211,12 +217,12 @@ def build_stats_args(date: Optional[str] = None, *, auto: bool = False, out: Opt
         args.append("--auto")
     if out:
         args += ["--out", str(out).strip()]
-    return args + _account_args(account, config)
+    return args + _display_args(headless) + _account_args(account, config)
 
 
 def build_daily_args(date: Optional[str] = None, *, no_open: bool = False,
                      no_capture_watch: bool = False, account: Optional[str] = None,
-                     config: Optional[str] = None) -> List[str]:
+                     config: Optional[str] = None, headless: bool = False) -> List[str]:
     """daily:一键日报(导出 + 两列表日报文件夹),日期可一次给多个(空格/逗号分隔,或区间 09-01~09-05)。"""
     days = check_dates(date or "", "日期")
     args = ["daily"]
@@ -226,7 +232,7 @@ def build_daily_args(date: Optional[str] = None, *, no_open: bool = False,
         args.append("--no-open")
     if no_capture_watch:
         args.append("--no-capture-watch")
-    return args + _account_args(account, config)
+    return args + _display_args(headless) + _account_args(account, config)
 
 
 def build_trim_args(in_path: str, out: Optional[str] = None) -> List[str]:
@@ -253,6 +259,7 @@ def build_probe_args(room_id: Optional[str] = None, *, dry_run: bool = False, la
         args.append("--dry-run")
     if layer and layer != "all":
         args += ["--layer", str(layer)]
+    # 刻意不加 --headless:probe 是排障用的调查工具,窗口可见更好观察页面
     return args + _account_args(account, config)
 
 

@@ -26,6 +26,9 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parent
 # ---------------------------------------------------------------------------
 DEFAULT_CONFIG = {
     "browser": {
+        # 显示模式:true=有头(可见窗口),false=无头(后台运行、不弹窗)。
+        # 只影响 export/daily/stats/sessions 等取数命令;**login 永远有头**(要人工扫码)。
+        # 命令行 --headless / --headful 会覆盖本项(不写则跟随这里)。
         "headful": True,
         "profile_dir": "data/browser_profile",
         # 多账号(见 accounts.py / docs/多账号切换.md):一个账号 = 一个独立 profile 目录。

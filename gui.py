@@ -43,6 +43,8 @@ class App:
         self._accounts: List[dict] = []
         self.account_var = tk.StringVar(value=C.DEFAULT_ACCOUNT)
         self._all_buttons: List[ttk.Button] = []
+        # 显示模式:勾上 = 浏览器在后台跑、不弹窗(--headless);不勾 = 跟随配置文件 browser.headful
+        self.headless_var = tk.BooleanVar(value=self._initial_headless())
 
         try:
             style = ttk.Style()
@@ -69,6 +71,14 @@ class App:
         self.root.destroy()
 
     # ---------------- 公共部件 ----------------
+    def _initial_headless(self) -> bool:
+        """勾选框初值:配置里 browser.headful=false(即默认无头)时勾上;读配置失败按不勾处理。"""
+        try:
+            cfg = C.load_cfg(None)
+            return not bool((cfg.get("browser") or {}).get("headful", True))
+        except Exception:  # noqa: BLE001 — 界面不能因为配置读不出来就起不来
+            return False
+
     def _btn(self, parent, text: str, command: Callable[[], None], **kw) -> ttk.Button:
         btn = ttk.Button(parent, text=text, command=command, **kw)
         self._all_buttons.append(btn)
@@ -114,6 +124,8 @@ class App:
         bar2.pack(fill="x", padx=10, pady=(0, 6))
         self.account_info = ttk.Label(bar2, text="", foreground=HINT_COLOR)
         self.account_info.pack(side="left")
+        ttk.Checkbutton(bar2, text="后台运行(无头,不弹窗)",
+                        variable=self.headless_var).pack(side="right")
 
     def _busy(self, busy: bool):
         self.running = busy
@@ -386,23 +398,25 @@ class App:
     def on_daily(self):
         self._guarded("一键日报", lambda: C.build_daily_args(
             self.daily_date.get(), no_open=bool(self.daily_no_open.get()),
-            no_capture_watch=bool(self.daily_no_watch.get()), account=self.account_var.get()),
+            no_capture_watch=bool(self.daily_no_watch.get()), account=self.account_var.get(),
+            headless=bool(self.headless_var.get())),
             self.daily_log)
 
     def on_export(self):
         self._guarded("按天导出", lambda: C.build_export_args(
             self.export_date.get(), excel=bool(self.export_excel.get()),
             compact=bool(self.export_compact.get()), capture_watch=bool(self.export_watch.get()),
-            account=self.account_var.get()), self.export_log)
+            account=self.account_var.get(), headless=bool(self.headless_var.get())), self.export_log)
 
     def on_sessions(self):
         self._guarded("列出该天场次", lambda: C.build_sessions_args(
-            self.daily_date.get(), account=self.account_var.get()), self.daily_log)
+            self.daily_date.get(), account=self.account_var.get(),
+            headless=bool(self.headless_var.get())), self.daily_log)
 
     def on_stats(self):
         self._guarded("汇总统计", lambda: C.build_stats_args(
             self.stats_date.get(), auto=bool(self.stats_auto.get()),
-            account=self.account_var.get()), self.stats_log)
+            account=self.account_var.get(), headless=bool(self.headless_var.get())), self.stats_log)
 
     def on_trim(self):
         self._guarded("成交点精简表", lambda: C.build_trim_args(

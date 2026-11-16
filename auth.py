@@ -160,6 +160,8 @@ def _headless_from(cfg: dict, headful_override: bool | None = None) -> bool:
 def open_session(cfg: dict, *, headful: bool | None = None):
     """打开持久化 Chromium 会话。
 
+    ``headful`` 为 None 时跟随配置 ``browser.headful``(命令行 --headless/--headful 会先写进
+    cfg,所以业务路径传 None 即可);显式 True/False 会覆盖配置——人工登录必须传 True。
     返回 ``(pw, context, page)``;调用方必须用 ``finally`` 关闭:
         context.close(); pw.stop()
     首次运行会创建 profile 目录;headful=True 用于人工登录,默认跟随配置。
@@ -167,7 +169,8 @@ def open_session(cfg: dict, *, headful: bool | None = None):
     sync_playwright = _import_playwright()
     profile_dir = resolve_profile_dir(cfg)
     headless = _headless_from(cfg, headful)
-    print(f"[auth] 账号: {account_name(cfg)}(profile: {profile_dir})")
+    mode = "无头(后台运行,不弹窗)" if headless else "有头(可见窗口)"
+    print(f"[auth] 账号: {account_name(cfg)}(profile: {profile_dir}) · {mode}")
     pw = sync_playwright().start()
     try:
         context = pw.chromium.launch_persistent_context(

@@ -423,7 +423,7 @@ def read_live(cfg: dict, room_id: str, *,
 
     try:
         import auth
-        pw, context, page = auth.open_session(cfg, headful=True)
+        pw, context, page = auth.open_session(cfg)  # 显示模式跟随 cfg(CLI/GUI/配置)
     except SystemExit:
         raise
     except Exception as exc:

@@ -60,11 +60,25 @@ def _add_account_arg(p) -> None:
     p.add_argument("--account", default=None, help=_HINT_ACCOUNT)
 
 
+def _add_display_args(p) -> None:
+    """给子命令加显示模式开关(覆盖 config 的 browser.headful)。
+
+    两个开关互斥、默认都是 None(不写 = 跟随配置文件),避免"没传参却把配置覆盖掉"。
+    """
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--headless", dest="headful", action="store_false", default=None,
+                   help="无头模式:浏览器在后台运行、不弹出窗口(需已登录;覆盖配置 browser.headful)")
+    g.add_argument("--headful", dest="headful", action="store_true", default=None,
+                   help="强制有头(可见窗口),便于排障;覆盖配置 browser.headful")
+
+
 def _load_cfg(args):
     """加载配置并应用账号(--account > config.browser.account > 默认账号)。
 
     账号名非法时打印中文原因并返回 None(调用方返回退出码 2);此时不创建任何
     profile 目录、也不打开浏览器。
+
+    显示模式:命令行 --headless/--headful 覆盖 config 的 browser.headful(两者都没传则不动配置)。
     """
     import accounts as acctmod
     import config as cfgmod
@@ -77,6 +91,9 @@ def _load_cfg(args):
         print("[main] 账号名示例: default(默认账号) / spa2 / shop-2;列出已有账号: python main.py accounts",
               file=sys.stderr)
         return None
+    mode = getattr(args, "headful", None)
+    if mode is not None:
+        cfg.setdefault("browser", {})["headful"] = bool(mode)
     return cfg
 
 
@@ -121,6 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
                           help="在线导出后自动尝试捕获回放页 直播间观看量(WatchCntTrend)分钟序列,"
                                "写观看档供小时 GPM 以真实看播量为分母输出(需已登录;失败优雅降级)")
     _add_account_arg(p_export)
+    _add_display_args(p_export)
     p_export.set_defaults(func=cmd_export)
 
     p_trim = sub.add_parser("trim", help="把已导出的完整分钟量表转换为\"成交点精简表\"(time 只含 HH:MM;只保留 gmv>0 行)")
@@ -136,6 +154,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_stats.add_argument("--out", default=None, help="汇总 CSV 输出路径(默认 data/outputs/stats_<日期>.csv)")
     p_stats.add_argument("--config", default=None, help="配置文件路径")
     _add_account_arg(p_stats)
+    _add_display_args(p_stats)
     p_stats.set_defaults(func=cmd_stats)
 
     p_daily = sub.add_parser("daily", help="一键日报:导出某天(可多天)全部已结束场次并生成\"两列表日报文件夹\"(成交点 HH:MM+gmv + 日报汇总)")
@@ -155,6 +174,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_daily.add_argument("--capture-watch", action="store_true",
                          help="(兼容)显式开启观看档捕获——已是默认行为,无需再传")
     _add_account_arg(p_daily)
+    _add_display_args(p_daily)
     p_daily.set_defaults(func=cmd_daily)
 
     p_sessions = sub.add_parser("sessions", help="列出指定日期(东八区)该账号已结束场次(只读)")
@@ -162,6 +182,7 @@ def build_parser() -> argparse.ArgumentParser:
                             help=_HINT_DATE + "(默认今天,东八区)")
     p_sessions.add_argument("--config", default=None, help="配置文件路径")
     _add_account_arg(p_sessions)
+    _add_display_args(p_sessions)
     p_sessions.set_defaults(func=cmd_sessions)
 
     p_accounts = sub.add_parser("accounts", help="列出已配置的账号(多账号切换用;只读,不打开浏览器)")

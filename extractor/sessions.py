@@ -272,7 +272,7 @@ def fetch_day_sessions(cfg: dict, date_str: str, *, on_page=None) -> List[Dict[s
     url = day_paged_url(day_str)
     try:
         import auth
-        pw, context, page = auth.open_session(cfg, headful=True)
+        pw, context, page = auth.open_session(cfg)  # 显示模式跟随 cfg(CLI/GUI/配置)
     except SystemExit:
         raise DaySessionsUnavailable(_guidance_text(day_str)) from None
     except Exception as exc:  # noqa: BLE001

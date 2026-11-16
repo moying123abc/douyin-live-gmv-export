@@ -468,7 +468,7 @@ def capture_watch_minutes(cfg: dict, room_id: str, session_date: str,
     result: Dict[str, Any] = {"ok": False, "room_id": room_id, "session_date": session_date,
                               "captured_at_utc": _now_utc()}
     try:
-        pw, context, page = auth.open_session(cfg, headful=True)
+        pw, context, page = auth.open_session(cfg)  # 显示模式跟随 cfg(CLI/GUI/配置)
     except SystemExit:
         raise
     except Exception as exc:
@@ -847,6 +847,11 @@ def main(argv=None) -> int:
     p.add_argument("--assist", action="store_true", help="不自动点弹窗,输出人工步骤后进入轮询")
     p.add_argument("--poll-seconds", type=int, default=60)
     p.add_argument("--out-dir", default=None)
+    _mode = p.add_mutually_exclusive_group()
+    _mode.add_argument("--headless", dest="headful", action="store_false", default=None,
+                       help="无头模式:浏览器在后台运行、不弹窗(覆盖配置 browser.headful)")
+    _mode.add_argument("--headful", dest="headful", action="store_true", default=None,
+                       help="强制有头(可见窗口),便于排障;覆盖配置 browser.headful")
     args = p.parse_args(argv)
     cfg = cfgmod.load_config(args.config)
     try:
@@ -856,6 +861,8 @@ def main(argv=None) -> int:
         print("[watch_capture] 示例: python -m exporter.watch_capture --account spa2 "
               "--room-id <room_id> --date YYYY-MM-DD", file=_sys.stderr)
         return 2
+    if args.headful is not None:
+        cfg.setdefault("browser", {})["headful"] = bool(args.headful)
     if args.date:
         # 与 main.py 同一口径:支持省略年份的 MM-DD,避免写出对不上导出表 session_date 的观看档
         from extractor.sessions import normalize_date_str

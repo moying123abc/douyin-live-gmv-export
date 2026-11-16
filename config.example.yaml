@@ -11,7 +11,9 @@
 #   - 不收集商品-营销-违规事件时间轴。
 
 browser:
-  headful: true                          # 首次人工扫码登录必须为 true(有头可见窗口);登录后仍建议保持 true
+  headful: true                          # 显示模式:true=有头(可见窗口);false=无头(后台运行、不弹窗)。
+                                         # 只影响导出/日报/统计等取数命令,login 永远有头(要扫码)。
+                                         # 命令行 --headless / --headful 会覆盖本项。
   profile_dir: data/browser_profile      # 默认账号的持久化 Chromium profile(相对本项目根;自动创建;勿提交)
   accounts_dir: data/accounts            # 多账号:具名账号的 profile 根目录,一账号一目录(含登录凭据;整体已忽略)
   account: ""                            # 不传 --account 时默认使用的账号名(空 = 用上面的 profile_dir);--account 优先级更高

@@ -134,6 +134,21 @@ def test_build_export_stats_daily():
     assert C.build_probe_args("123", layer="all") == ["probe", "--room-id", "123"]
 
 
+def test_headless_checkbox_is_opt_in():
+    """界面勾「后台运行」才带 --headless;不勾就完全不加(跟随配置文件 browser.headful)。"""
+    day = f"{YEAR}-09-04"
+    assert C.build_daily_args("09-04", headless=True) == ["daily", "--date", day, "--headless"]
+    assert C.build_daily_args("09-04") == ["daily", "--date", day]
+    assert C.build_daily_args("09-04", headless=True, account="spa2") == [
+        "daily", "--date", day, "--headless", "--account", "spa2"]
+    assert C.build_sessions_args("09-04", headless=True) == ["sessions", "--date", day, "--headless"]
+    assert C.build_export_args("09-04", headless=True) == [
+        "export", "--date", day, "--excel", "--headless"]
+    assert C.build_stats_args("09-04", headless=True) == ["stats", "--date", day, "--headless"]
+    # probe 是排障工具,界面上没有无头选项
+    assert "--headless" not in C.build_probe_args("7000000000000000001")
+
+
 def test_builders_reject_impossible_input():
     """一眼就不对的东西不进子进程:多天给单个命令、坏账号名、缺文件。"""
     assert _raises_form_error(C.build_sessions_args, "09-01 09-02")

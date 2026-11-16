@@ -87,6 +87,7 @@ python -m playwright install chromium
 | 汇总统计 | 读已导出的分钟量表做当天场次级汇总 | `python main.py stats --date 09-04` |
 | 账号 | 看已有账号、用新名字扫码登录、打开账号目录 | `python main.py accounts` / `login --account spa2` |
 | 高级工具 | 精简表转换(trim)与只读探测(probe --dry-run) | `python main.py trim --in ...` |
+| 右上角「后台运行(无头,不弹窗)」 | 勾上后浏览器在后台跑,导出/日报期间不弹窗口 | 任意命令加 `--headless` |
 
 - **账号切换就在右上角**:工具栏选哪个账号,「登录 / 检查登录状态」和所有导出就都用它(等价于命令行的 `--account`);
   首次使用某个账号:工具栏选中它 → 点「登录 / 检查登录状态」→ 在弹出的浏览器里扫码一次,之后自动复用。
@@ -299,13 +300,40 @@ python main.py daily --date "2026-09-01 至 2026-09-05"  # 分隔符也支持 �
 > 图形界面「一键日报」页签的日期框同样支持多天、短写法与区间(如 `09-01 09-02`、`09-01~09-05`),
 > 与命令行共用同一份解析,效果完全一致。
 
+## 无头模式(后台运行,不弹窗)
+
+不影响你正在用的电脑:导出/日报时让浏览器在后台跑,不弹窗口。
+
+```powershell
+python main.py daily  --date 09-04 --headless     # 一键日报,后台跑
+python main.py export --date 09-04 --headless     # 按天导出,后台跑
+```
+
+开关优先级(高 → 低):
+
+1. 命令行 `--headless` / `--headful`(只影响这一次;`--headful` 用于临时恢复可见窗口排障);
+2. 图形界面右上角「后台运行(无头,不弹窗)」勾选框;
+3. `config.yaml` 的 `browser.headful: false`(长期默认)。
+
+必须知道的几条:
+
+- **`login` 永远有头**,不受开关影响 —— 扫码得看得见窗口。
+- 无头**不是**"读到假数据":抓的还是同一个回放页、同一套接口。实测同一场次,无头与有头得到的
+  分钟成交金额、观看量分钟序列完全一致(行数与 Σ 都相同)。
+- 会话过期时,无头命令会**立刻失败**并提示 `python main.py login`(不会空等 30 分钟);扫完码用
+  `--headless` 重跑即可。
+- 窗口看不见容易误以为没在跑:每条命令开头会打印 `· 无头(后台运行,不弹窗)`。同一个账号
+  **不要同时**跑两个命令(会抢同一个 profile)。
+- `probe` 等排障工具**故意保持有头**,因为它们的价值就在于能看着页面点。
+
 ## 配置
 
 复制 `config.example.yaml` 为 `config.yaml`(已被 git 忽略)后按需修改;命令行参数优先。主要选项:
 
 ```yaml
 browser:
-  headful: true            # 登录必须有头;建议保持 true
+  headful: true            # true=有头(可见窗口);false=无头(后台运行、不弹窗)。
+                           # 只影响导出/日报/统计;login 永远有头。命令行 --headless/--headful 可覆盖
   profile_dir: data/browser_profile  # 默认账号的持久化登录 profile
   accounts_dir: data/accounts        # 具名账号根目录:一个账号一个子目录(已被 git 忽略)
   account: ""                        # 想固定账号就写名字(如 spa2);命令行 --account 优先
