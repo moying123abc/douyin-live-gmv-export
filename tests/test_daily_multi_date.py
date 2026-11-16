@@ -42,7 +42,11 @@ def _seed(outs: pathlib.Path, date_dash: str, rows: str = GOOD_ROWS):
 
 def _cfg(tmp: pathlib.Path, outs: pathlib.Path) -> pathlib.Path:
     cfg = tmp / "config.yaml"
-    cfg.write_text('export:\n  out_dir: "' + outs.as_posix() + '"\n', encoding="utf-8")
+    # outs 就是"本次账号的产物目录";配置里写它的父目录 + 账号名,与真实布局一致
+    cfg.write_text(
+        'export:' + chr(10) + '  out_dir: "' + outs.parent.as_posix() + '"' + chr(10)
+        + 'browser:' + chr(10) + '  account: "' + outs.name + '"' + chr(10),
+        encoding="utf-8")
     return cfg
 
 
@@ -70,7 +74,7 @@ def _assert_report_complete(folder: pathlib.Path):
 
 def test_space_separated_two_dates_create_two_folders():
     with tempfile.TemporaryDirectory() as td:
-        tmp = pathlib.Path(td); outs = tmp / "outs"; outs.mkdir()
+        tmp = pathlib.Path(td); outs = tmp / "root" / "default"; outs.mkdir(parents=True)
         _seed(outs, "2026-09-01"); _seed(outs, "2026-09-02")
         r = _run(_daily_args(_cfg(tmp, outs), "2026-09-01", "2026-09-02"))
         assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
@@ -100,7 +104,7 @@ def test_comma_and_repeated_flag_equivalent():
 def test_single_date_backward_compatible():
     """回归:单日期行为与旧版一致(不出现多日汇总输出)。"""
     with tempfile.TemporaryDirectory() as td:
-        tmp = pathlib.Path(td); outs = tmp / "outs"; outs.mkdir()
+        tmp = pathlib.Path(td); outs = tmp / "root" / "default"; outs.mkdir(parents=True)
         _seed(outs, "2026-09-01")
         r = _run(_daily_args(_cfg(tmp, outs), "2026-09-01"))
         assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
@@ -110,7 +114,7 @@ def test_single_date_backward_compatible():
 
 def test_duplicate_dates_deduped():
     with tempfile.TemporaryDirectory() as td:
-        tmp = pathlib.Path(td); outs = tmp / "outs"; outs.mkdir()
+        tmp = pathlib.Path(td); outs = tmp / "root" / "default"; outs.mkdir(parents=True)
         _seed(outs, "2026-09-01")
         r = _run(_daily_args(_cfg(tmp, outs), "2026-09-01", "2026-09-01"))
         assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
@@ -121,7 +125,7 @@ def test_duplicate_dates_deduped():
 def test_invalid_date_rejects_whole_batch():
     """含非法日期时整批拒绝:不得对合法日期做"半截"生成。"""
     with tempfile.TemporaryDirectory() as td:
-        tmp = pathlib.Path(td); outs = tmp / "outs"; outs.mkdir()
+        tmp = pathlib.Path(td); outs = tmp / "root" / "default"; outs.mkdir(parents=True)
         _seed(outs, "2026-09-01")
         r = _run(_daily_args(_cfg(tmp, outs), "2026-09-01", "2026-13-99"))
         assert r.returncode == 2, f"{r.stdout}\n{r.stderr}"
@@ -132,7 +136,7 @@ def test_invalid_date_rejects_whole_batch():
 def test_mixed_success_and_failure_continues():
     """某天失败不中断其他天;退出码取第一个失败日的码。"""
     with tempfile.TemporaryDirectory() as td:
-        tmp = pathlib.Path(td); outs = tmp / "outs"; outs.mkdir()
+        tmp = pathlib.Path(td); outs = tmp / "root" / "default"; outs.mkdir(parents=True)
         _seed(outs, "2026-09-01")
         _seed(outs, "2026-09-03", rows=BAD_ROWS)
         r = _run(_daily_args(_cfg(tmp, outs), "2026-09-01", "2026-09-03"))
@@ -146,7 +150,7 @@ def test_mixed_success_and_failure_continues():
 def test_range_expands_to_all_days():
     """区间写法:一次跑 3 天,产出 3 个日报目录(单个 --date 参数,含区间)。"""
     with tempfile.TemporaryDirectory() as td:
-        tmp = pathlib.Path(td); outs = tmp / "outs"; outs.mkdir()
+        tmp = pathlib.Path(td); outs = tmp / "root" / "default"; outs.mkdir(parents=True)
         for d in ("2026-09-01", "2026-09-02", "2026-09-03"):
             _seed(outs, d)
         r = _run(_daily_args(_cfg(tmp, outs), "2026-09-01~2026-09-03"))

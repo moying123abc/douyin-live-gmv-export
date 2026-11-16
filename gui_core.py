@@ -303,14 +303,16 @@ def output_path_of(line: str) -> Optional[str]:
     return str(path if path.is_absolute() else (PROJECT_ROOT / path))
 
 
-def default_output_dir() -> str:
-    """默认产物目录(data/outputs;按 config.yaml 的 export.out_dir 解析)。"""
+def default_output_dir(account: Optional[str] = None) -> str:
+    """默认产物目录:按账号分目录(<export.out_dir>/<账号>)。
+
+    account 省略时用配置里的当前账号(默认账号 = 子目录 default)。
+    """
     try:
-        rel = str((load_cfg().get("export", {}) or {}).get("out_dir") or "data/outputs")
-    except Exception:
-        rel = "data/outputs"
-    path = Path(rel)
-    return str(path if path.is_absolute() else (PROJECT_ROOT / path))
+        return str(acctmod.export_root(load_cfg(), name=account))
+    except Exception:  # noqa: BLE001 — 界面不能因为配置读不出来就报错
+        base = PROJECT_ROOT / "data" / "outputs"
+        return str(base / str(account)) if account else str(base)
 
 
 def display_path(path) -> str:

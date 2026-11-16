@@ -208,7 +208,11 @@ def test_safe_output_dir():
 
 
 def test_default_output_dir_and_display_path():
-    assert C.default_output_dir().endswith(str(pathlib.Path("data") / "outputs"))
+    import accounts as acctmod
+    base = pathlib.Path("data") / "outputs"
+    # 产物按账号分目录:默认账号 → data/outputs/default,具名账号 → data/outputs/<名字>
+    assert pathlib.Path(C.default_output_dir()).parts[-2:] == (base.name, acctmod.DEFAULT_ACCOUNT)
+    assert pathlib.Path(C.default_output_dir("spa2")).parts[-2:] == (base.name, "spa2")
     assert C.display_path(ROOT / "main.py") == "main.py"
     assert C.display_path("D:\\somewhere\\else") == "D:\\somewhere\\else"
 

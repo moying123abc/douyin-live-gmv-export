@@ -86,6 +86,23 @@ def account_paths(cfg: dict, name=None) -> tuple:
     return root / acc / "browser_profile", root / acc / "account.json"
 
 
+def export_root(cfg: dict, name=None) -> pathlib.Path:
+    """本次账号的**导出根目录**:<export.out_dir>/<账号名>(不创建)。
+
+    为什么按账号分目录:产物文件名只有日期与 room_id,不含账号。两个账号导出同一天时,
+    `日报_<日期>/` 会混在一起;更糟的是 `daily` 归集当天文件时只按日期 glob,会把
+    **别的账号已导出的场次**也扫进来(等于把别人店铺的数据算进本次日报)。
+    """
+    base = _resolve_rel((cfg.get("export", {}) or {}).get("out_dir") or "data/outputs")
+    acc = normalize_account_name(name if name is not None else current_account_name(cfg))
+    return base / acc
+
+
+def legacy_export_root(cfg: dict) -> pathlib.Path:
+    """旧版**不分账号**的扁平导出目录(仅用于读取兜底;新产物一律写 export_root)。"""
+    return _resolve_rel((cfg.get("export", {}) or {}).get("out_dir") or "data/outputs")
+
+
 def resolve_account_name(cfg: dict, cli_account=None) -> str:
     """确定本次要用的账号名:--account 优先,其次 config.browser.account,最后默认账号。"""
     if cli_account is not None and str(cli_account).strip():

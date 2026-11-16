@@ -44,6 +44,8 @@ import pathlib
 import re
 import sys
 
+import accounts as acctmod
+
 # 四个子命令 --date 的统一说明(完整日期 + 省略年份的短写法)
 _HINT_DATE = ("日期支持 YYYY-MM-DD,或省略年份的 MM-DD(年份取当前年份);"
               "均可用 - 或 . 分割,如 2026.09.04 / 09.04")
@@ -348,7 +350,7 @@ def _daily_one_date(cfg: dict, date_str: str, out_dir: pathlib.Path, *,
           "  (--account 名 + 页面账号名,用于核对这批数据是谁导出的)")
 
     skipped_info: list = []
-    files = daily_stats.day_files(out_dir, date_str)
+    files = daily_stats.day_files(out_dir, date_str, fallback_dir=acctmod.legacy_export_root(cfg))
     if not files:
         print(f"[daily] {date_str} 尚无已导出的分钟量表,自动在线导出(--compact)…")
         code, info = _export_day(cfg, day, excel=False, compact=True,
@@ -358,7 +360,7 @@ def _daily_one_date(cfg: dict, date_str: str, out_dir: pathlib.Path, *,
             print(f"[daily] {date_str} 当天没有成功导出的场次(退出码 {code}),无法生成日报。",
                   file=sys.stderr)
             return code, None
-        files = daily_stats.day_files(out_dir, date_str)
+        files = daily_stats.day_files(out_dir, date_str, fallback_dir=acctmod.legacy_export_root(cfg))
     if not files:
         print(f"[daily] {date_str} 没有可用的分钟量表文件({out_dir}).", file=sys.stderr)
         print("[daily] 人工引导: 先 python main.py login,再 python main.py daily "
@@ -523,10 +525,7 @@ def cmd_daily(args) -> int:
         print(f"[daily] {exc}", file=sys.stderr)
         return 2
 
-    out_rel = cfg.get("export", {}).get("out_dir", "data/outputs")
-    out_dir = pathlib.Path(out_rel)
-    if not out_dir.is_absolute():
-        out_dir = cfgmod.PROJECT_ROOT / out_dir
+    out_dir = acctmod.export_root(cfg)
     want_capture = not bool(getattr(args, "no_capture_watch", False))
     multi = len(dates) > 1
     if multi:
@@ -583,12 +582,9 @@ def cmd_stats(args) -> int:
               f"(支持 - 或 . 分割,如 2026.09.04 / 09.04,省略年份时取当前年份): {args.date!r}",
               file=sys.stderr)
         return 2
-    out_rel = cfg.get("export", {}).get("out_dir", "data/outputs")
-    out_dir = pathlib.Path(out_rel)
-    if not out_dir.is_absolute():
-        out_dir = cfgmod.PROJECT_ROOT / out_dir
+    out_dir = acctmod.export_root(cfg)
 
-    files = daily_stats.day_files(out_dir, date_str)
+    files = daily_stats.day_files(out_dir, date_str, fallback_dir=acctmod.legacy_export_root(cfg))
     if not files and getattr(args, "auto", False):
         print(f"[stats] {date_str} 暂无已导出的分钟量表,自动在线补导出(--auto)…")
         day = _dt.date.fromisoformat(date_str)
@@ -596,7 +592,7 @@ def cmd_stats(args) -> int:
         if code != 0:
             print(f"[stats] 自动补导出失败(退出码 {code}),无法统计。", file=sys.stderr)
             return code
-        files = daily_stats.day_files(out_dir, date_str)
+        files = daily_stats.day_files(out_dir, date_str, fallback_dir=acctmod.legacy_export_root(cfg))
     if not files:
         print(f"[stats] {date_str} 没有已导出的分钟量表文件({out_dir}).", file=sys.stderr)
         print("[stats] 人工引导: python main.py export --date "
@@ -694,10 +690,7 @@ def _export_day(cfg: dict, day: _dt.date, *, excel: bool = False,
     if not sessions:
         print(f"[export] {date_str} 无已结束场次,无输出。")
         return 0, info
-    out_rel = cfg.get("export", {}).get("out_dir", "data/outputs")
-    out_dir = pathlib.Path(out_rel)
-    if not out_dir.is_absolute():
-        out_dir = cfgmod.PROJECT_ROOT / out_dir
+    out_dir = acctmod.export_root(cfg)
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"[export] {date_str} 待导出 {len(sessions)} 场 → {out_dir}")
 
@@ -941,10 +934,7 @@ def cmd_export(args) -> int:
     if args.out:
         prefix = pathlib.Path(args.out)
     else:
-        out_dir = pathlib.Path(cfg.get("export", {}).get("out_dir", "data/outputs"))
-        if not out_dir.is_absolute():
-            out_dir = cfgmod.PROJECT_ROOT / out_dir
-        prefix = out_dir / str(stem)
+        prefix = acctmod.export_root(cfg) / str(stem)
     if output_columns is not None:
         csv_path = to_csv_excel.write_csv(prefix, rows, columns=output_columns)
     else:
@@ -1031,9 +1021,7 @@ def cmd_export(args) -> int:
             if not session_date:
                 session_date = args.date or _dt.date.today().isoformat()
             prefix_dir = pathlib.Path(prefix).parent
-            out_cfg_dir = pathlib.Path(cfg.get("export", {}).get("out_dir", "data/outputs"))
-            if not out_cfg_dir.is_absolute():
-                out_cfg_dir = cfgmod.PROJECT_ROOT / out_cfg_dir
+            out_cfg_dir = acctmod.export_root(cfg)
             target_dir = prefix_dir if str(prefix_dir).startswith(str(out_cfg_dir)) else out_cfg_dir
             print(f"[export] 尝试捕获直播间观看量(WatchCntTrend,room {args.room_id})…")
             res = _try_capture_watch(cfg, target_dir, args.room_id, session_date)

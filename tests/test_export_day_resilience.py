@@ -57,13 +57,15 @@ def test_export_day_skips_bad_and_continues():
         assert len(info["skipped"]) == 1
         assert info["skipped"][0]["room_id"] == "bad_room_1min"
         assert "no_series" in info["skipped"][0]["reason"]
-        ok_file = tmp / "live_20260902_ok_room_main.csv"
-        bad_file = tmp / "live_20260902_bad_room_1min.csv"
+        # 产物按账号分目录:此处 cfg 没有 browser.account → 落 data/outputs/default 语义,即 tmp/default
+        acc_dir = tmp / "default"
+        ok_file = acc_dir / "live_20260902_ok_room_main.csv"
+        bad_file = acc_dir / "live_20260902_bad_room_1min.csv"
         assert ok_file.is_file(), "主场应被成功导出"
         assert not bad_file.exists(), "被跳过场次不应产出文件"
         # 数据归属:成功场次写进 _account_index.json(日报据此标注账号);跳过场次不记
         import json
-        idx = json.loads((tmp / "_account_index.json").read_text(encoding="utf-8"))
+        idx = json.loads((acc_dir / "_account_index.json").read_text(encoding="utf-8"))
         day = idx["days"]["2026-09-02"]
         assert "ok_room_main" in day
         assert "bad_room_1min" not in day

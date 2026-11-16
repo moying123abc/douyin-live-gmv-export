@@ -443,7 +443,7 @@ class App:
             self.trim_in.set(path)
 
     def on_open_output(self):
-        base = self.last_output or C.default_output_dir()
+        base = self.last_output or C.default_output_dir(self.account_var.get())
         target = C.safe_output_dir(base)
         if not target:
             messagebox.showwarning("打不开", "输出目录不在项目 data/ 下,已拒绝打开。")

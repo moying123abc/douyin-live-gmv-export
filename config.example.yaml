@@ -37,7 +37,8 @@ probe:
   try_l3: false                          # L0/L1 未命中时是否尝试 L3 逐点悬停兜底脚手架(默认关闭)
 
 export:
-  out_dir: data/outputs                  # M2 导出输出目录(相对本项目根;不入库)
+  out_dir: data/outputs                  # 导出**根**目录(相对本项目根;不入库)。
+                                         # 实际产物在 data/outputs/<账号名>/ 下(按账号分目录)
   # T12:回放页「自定义指标」保留集合(趋势图同屏 ≤6;成交金额=gmv 分子必留;可改)
   watch_capture_keep_metrics:
     - 成交金额

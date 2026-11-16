@@ -122,7 +122,7 @@ python main.py export --fixture data\samples\sample_ended_session_gpm.json
 python main.py trim --in data\outputs\sample_ended_session_60min.csv
 ```
 
-- 产物统一写到 `data\outputs\`(已在 `.gitignore` 中排除,**不会**被提交)。
+- 产物统一写到 `data\outputs\<账号名>\`(按账号分目录;已在 `.gitignore` 中排除,**不会**被提交)。
 - 一次性跑全部离线自检(不需要登录):
 
 ```powershell
@@ -184,8 +184,27 @@ python main.py accounts
 - 同一个账号**不要并发**跑多个命令(同一个 profile 目录同时只能被一个 Chromium 实例使用)。
 - **日报里能核对是谁导出的**:按天导出成功会记一笔归属(账号 + 页面账号名),日报汇总表因此多出
   ~account~ 列(如 ~1(示例账号A)~),并在日报文件夹里生成 ~账号说明.txt~;同一天混了多个账号会显式警告。
-  索引在 ~data/outputs/_account_index.json~,细节见
+  索引在 ~data/outputs/<账号名>/_account_index.json~,细节见
   [docs/日报中的导出账号.md](docs/日报中的导出账号.md)。
+
+### 产物按账号分目录(2026-11-16 起)
+
+导出结果不再混在一个 `data/outputs/` 里,而是各自落进账号子目录:
+
+```text
+data/outputs/
+├── default/                     # 默认账号(不传 --account)的产物
+│   ├── live_20260904_<room_id>.csv
+│   ├── 日报_20260904/
+│   └── _account_index.json      # 本账号的导出归属索引
+└── 1/                           # 具名账号 1 的产物(结构同上)
+```
+
+- **为什么**:产物文件名只有日期和 room_id,没有账号。以前两个账号导出同一天,`日报_<日期>/`
+  会混在一起;更糟的是日报归集当天文件时只按日期找,会把**别的账号已导出的场次**也算进来。
+- **旧数据不会消失**:账号目录里当天没有文件时,会去旧的扁平 `data/outputs/` 兜底读(只读),
+  并打印一行提示。想彻底收拢,把旧文件手动移到对应账号目录即可(例如全属于账号 1 → `data/outputs/1/`)。
+- 新产物**只写**账号目录,不会再有跨账号串台。
 - 原理与实测证据(两个目录的登录态完全隔离、把目录整份复制出去后仍判定"已登录")见
   [docs/多账号切换.md](docs/多账号切换.md)。
 
@@ -226,7 +245,7 @@ python main.py sessions --date 2026-09-04        # 列出当天已结束场次(�
 python main.py export --date 2026-09-04 --excel  # 当天每场各导出 CSV/Excel
 #    日期两种写法都行: 2026-09-04(完整)/ 09-04(省略年份 = 当前年份);也可写 9.4
 python main.py sessions --date 09-04             # 等价于上面的 2026-09-04
-# 产物: data\outputs\live_<YYYYMMDD>_<room_id>.csv(/xlsx),口径与 --room-id 完全一致
+# 产物: data\outputs\<账号名>\live_<YYYYMMDD>_<room_id>.csv(/xlsx),口径与 --room-id 完全一致
 ```
 
 > 真机联调(2026-09-04,生活服务直播大屏 room_id=7000000000000000002)已通过:

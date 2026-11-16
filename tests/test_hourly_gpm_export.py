@@ -260,8 +260,12 @@ def test_zero_views_bucket_annotated_no_nan():
 # 正常生成、说明/统计无伪场次。
 # ---------------------------------------------------------------------------
 def _write_cfg(tmp: pathlib.Path, out_dir: pathlib.Path) -> pathlib.Path:
+    """out_dir 是"本次账号的产物目录";配置里写它的父目录 + 账号名(产物按账号分目录)。"""
     cfg = tmp / "config_chain.yaml"
-    cfg.write_text(f'export:\n  out_dir: "{out_dir.as_posix()}"\n', encoding="utf-8")
+    cfg.write_text(
+        "export:" + chr(10) + '  out_dir: "' + out_dir.parent.as_posix() + '"' + chr(10)
+        + "browser:" + chr(10) + '  account: "' + out_dir.name + '"' + chr(10),
+        encoding="utf-8")
     return cfg
 
 
@@ -274,8 +278,8 @@ def test_f1_chain_cmd_daily_stats_with_watch_present():
     """观看档落盘(含无 _compact 场次)不再使 cmd_daily/cmd_stats 失败或列伪场次。"""
     with tempfile.TemporaryDirectory() as td:
         base = pathlib.Path(td)
-        outs = base / "outs"
-        outs.mkdir()
+        outs = base / "root" / "default"
+        outs.mkdir(parents=True)
         # r1:canonical + watch_min,但无 _compact(cmd_daily 需离线补精简表分支)
         _session_bundle_no_compact(outs, ROWS_R1, "r1")
         _watch_file(outs, "r1", [("09-04 09:04", 80), ("09-04 09:23", 80),

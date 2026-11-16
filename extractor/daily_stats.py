@@ -26,14 +26,31 @@ SUMMARY_HEADER = [
 TOTAL_LABEL = "合计"
 
 
-def day_files(out_dir: pathlib.Path, date_str: str) -> List[pathlib.Path]:
+def day_files(out_dir: pathlib.Path, date_str: str, *, fallback_dir=None) -> List[pathlib.Path]:
     """返回某日(YYYY-MM-DD)的标准分钟量表文件(排除 *_compact.csv 与 *_watch_min.csv)。
 
     命名约定 live_YYYYMMDD_<room_id>.csv(export --date / --room-id 产物);
     *_watch_min.csv 是小时 GPM 联动用的观看档,不是场次量表,必须排除,
     否则会被误当场次进入 cmd_daily 补精简表/统计/发布流程(F1 修复)。
+
+    fallback_dir:旧版**不分账号**的扁平目录。仅在 out_dir(按账号分目录)当天没有文件时
+    才去那里兜底读,避免"升级后历史数据看不见";有兜底时会打印一行提示。新产物不再写那里。
     """
     ymd = date_str.replace("-", "")
+    out = _scan_day(out_dir, ymd)
+    if not out and fallback_dir is not None:
+        fb = pathlib.Path(fallback_dir)
+        if fb != pathlib.Path(out_dir):
+            legacy = _scan_day(fb, ymd)
+            if legacy:
+                print(f"[daily_stats] 注意:{out_dir} 下没有 {date_str} 的产物,"
+                      f"改用旧版扁平目录里的 {len(legacy)} 个文件(历史数据未迁移,仅作只读兜底)")
+                return legacy
+    return out
+
+
+def _scan_day(out_dir: pathlib.Path, ymd: str) -> List[pathlib.Path]:
+    """在单个目录里按 live_<ymd>_*.csv 归集场次量表(不看账号,账号维度由目录承担)。"""
     out = []
     if not out_dir.is_dir():
         return out

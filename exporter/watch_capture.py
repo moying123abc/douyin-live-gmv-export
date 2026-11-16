@@ -733,8 +733,7 @@ def capture_watch_minutes(cfg: dict, room_id: str, session_date: str,
         semantics = SEMANTICS_TEMPLATE.format(sum=watch_sum, card=swcnt, diff=diff)
 
         # 写观看档
-        out_base = out_dir if out_dir is not None else pathlib.Path(
-            cfg.get("export", {}).get("out_dir", "data/outputs"))
+        out_base = out_dir if out_dir is not None else acctmod.export_root(cfg)
         out_dir_p = pathlib.Path(out_base)
         if not out_dir_p.is_absolute():
             out_dir_p = cfgmod.PROJECT_ROOT / out_dir_p
